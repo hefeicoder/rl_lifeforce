@@ -9,6 +9,7 @@ Note: stable-retro allows only ONE emulator per process, so we use
 SubprocVecEnv (one env per subprocess). DummyVecEnv would crash for N_ENVS > 1.
 """
 import argparse
+import datetime
 import os
 from collections import deque
 
@@ -19,7 +20,7 @@ from stable_baselines3.common.vec_env import SubprocVecEnv, VecMonitor, VecNorma
 from . import config as C
 from .env import make_thunk
 
-VECNORM_PATH = os.path.join(C.CHECKPOINT_DIR, "vecnormalize.pkl")
+VECNORM_NAME = "vecnormalize.pkl"   # saved inside each run's folder
 
 
 class LifeForceStatsCallback(BaseCallback):
@@ -98,13 +99,24 @@ def main():
                    help="torch device: 'auto'/'cpu'/'mps' (use 'mps' for Apple-GPU acceleration)")
     p.add_argument("--save-freq", type=int, default=C.CHECKPOINT_EVERY,
                    help="save a checkpoint every N total timesteps")
+    p.add_argument("--run-name", default=None, dest="run_name",
+                   help="name for this run's output folder (default: timestamp)")
     args = p.parse_args()
 
     if args.smoke:
         args.timesteps, args.n_envs = 4096, 2
 
-    os.makedirs(C.CHECKPOINT_DIR, exist_ok=True)
-    venv = build_vec_env(args.n_envs, load_norm=(VECNORM_PATH if args.resume else None))
+    # Each run gets its own folder so resumed runs don't overwrite each other's
+    # checkpoints (SB3 resets the step counter on resume). The TensorBoard run
+    # uses the same name, so curves and checkpoints line up.
+    run_name = args.run_name or datetime.datetime.now().strftime("run-%Y%m%d-%H%M%S")
+    run_dir = os.path.join(C.CHECKPOINT_DIR, run_name)
+    os.makedirs(run_dir, exist_ok=True)
+    print(f"Run: {run_name}  ->  checkpoints in {run_dir}/ , TensorBoard run '{run_name}'")
+
+    # On resume, load that run's normalization stats from beside its checkpoint.
+    load_norm = os.path.join(os.path.dirname(args.resume) or ".", VECNORM_NAME) if args.resume else None
+    venv = build_vec_env(args.n_envs, load_norm=load_norm)
 
     if args.resume:
         print(f"Resuming from {args.resume}")
@@ -123,16 +135,16 @@ def main():
     # total-timestep interval by the number of envs.
     ckpt = CheckpointCallback(
         save_freq=max(args.save_freq // args.n_envs, 1),
-        save_path=C.CHECKPOINT_DIR, name_prefix="lifeforce_ppo",
+        save_path=run_dir, name_prefix="lifeforce_ppo",
     )
     model.learn(total_timesteps=args.timesteps,
                 callback=[ckpt, LifeForceStatsCallback()],
-                progress_bar=True)
+                progress_bar=True, tb_log_name=run_name)
 
-    final = os.path.join(C.CHECKPOINT_DIR, "lifeforce_ppo_final.zip")
+    final = os.path.join(run_dir, "lifeforce_ppo_final.zip")
     model.save(final)
     if isinstance(venv, VecNormalize):
-        venv.save(VECNORM_PATH)          # reward-norm stats (for resume); play.py doesn't need it
+        venv.save(os.path.join(run_dir, VECNORM_NAME))  # reward-norm stats (for resume)
     print(f"Saved final model -> {final}")
     venv.close()
 

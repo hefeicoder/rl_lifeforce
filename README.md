@@ -75,6 +75,12 @@ per process — stable-retro allows only one emulator per process) to collect
 decorrelated experience. All hyperparameters, reward weights, and the action set
 live in [`src/config.py`](src/config.py).
 
+Each run writes to its own folder **`checkpoints/<run-name>/`** (a timestamp by
+default, or `--run-name <name>`), and the TensorBoard run uses the same name — so
+resumed runs never overwrite each other's checkpoints and curves/checkpoints line
+up. Watch curriculum/wall progress via **`lifeforce/best_score`** (absolute score;
+crossing the wall plateau = a breakthrough).
+
 Watch live in TensorBoard:
 
 ```bash
@@ -111,9 +117,9 @@ When the agent plateaus at a specific spot (a terrain wall, a boss), drill it:
 
 ```bash
 # 1. Capture the wall — the agent's own death point defines it:
-python -m tools.capture_state --model checkpoints/lifeforce_ppo_<N>_steps.zip --name l1_gauntlet
+python -m tools.capture_state --model checkpoints/<run>/lifeforce_ppo_<N>_steps.zip --name l1_gauntlet
 # 2. Resume — training auto-mixes states/l1_gauntlet.state into ~50% of episodes:
-python -m src.train --resume checkpoints/lifeforce_ppo_<N>_steps.zip
+python -m src.train --resume checkpoints/<run>/lifeforce_ppo_<N>_steps.zip
 ```
 
 Any `*.state` file dropped in `states/` becomes a possible start state
@@ -129,10 +135,10 @@ The default is a **live 3× window with game sound** (stop training first so the
 audio doesn't stutter):
 
 ```bash
-python -m src.play --model checkpoints/lifeforce_ppo_final.zip                # live window + sound
-python -m src.play --model checkpoints/lifeforce_ppo_final.zip --no-audio     # live, silent
-python -m src.play --model checkpoints/lifeforce_ppo_final.zip --render video # record an mp4 (with sound)
-python -m src.play --model checkpoints/lifeforce_ppo_final.zip --render video --no-audio  # silent mp4
+python -m src.play --model checkpoints/<run>/lifeforce_ppo_final.zip                # live window + sound
+python -m src.play --model checkpoints/<run>/lifeforce_ppo_final.zip --no-audio     # live, silent
+python -m src.play --model checkpoints/<run>/lifeforce_ppo_final.zip --render video # record an mp4 (with sound)
+python -m src.play --model checkpoints/<run>/lifeforce_ppo_final.zip --render video --no-audio  # silent mp4
 ```
 
 ## The interesting part: build & integration notes
