@@ -35,7 +35,9 @@ class LifeForceStatsCallback(BaseCallback):
         super().__init__()
         self._clears = 0
         self._episodes = 0
-        self._comp = deque(maxlen=window)  # recent per-episode component dicts
+        self._comp = deque(maxlen=window)    # recent per-episode reward-component dicts
+        self._best_score = 0                 # all-time max ABSOLUTE in-game score (progress marker)
+        self._recent = deque(maxlen=window)  # recent end-of-episode absolute scores
 
     def _on_step(self) -> bool:
         for info in self.locals.get("infos", []):
@@ -45,10 +47,16 @@ class LifeForceStatsCallback(BaseCallback):
             if rc is not None:             # set by LifeForceWrapper at episode end
                 self._episodes += 1
                 self._comp.append(rc)
+                sc = int(info.get("score", 0))   # absolute score — the save state preserves it,
+                self._recent.append(sc)          # so "best ever" rising past the wall (~2620)
+                self._best_score = max(self._best_score, sc)  # = a breakthrough, regardless of start
 
         self.logger.record("lifeforce/stage_clears", self._clears)
         if self._episodes:
             self.logger.record("lifeforce/clear_rate", self._clears / self._episodes)
+        self.logger.record("lifeforce/best_score", self._best_score)        # all-time
+        if self._recent:
+            self.logger.record("lifeforce/recent_best_score", max(self._recent))  # current capability
         if self._comp:
             n = len(self._comp)
             for k in self._comp[0]:              # score, alive, death, clear, powerup
