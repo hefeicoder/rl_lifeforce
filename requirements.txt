@@ -14,3 +14,4 @@ imageio-ffmpeg>=0.4
 pillow>=10.0
 tqdm>=4.66          # SB3 progress_bar
 rich>=13.0          # SB3 progress_bar
+sounddevice>=0.4        # optional: live --audio playback

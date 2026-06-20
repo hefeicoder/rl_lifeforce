@@ -143,19 +143,32 @@ class LifeForceWrapper(gym.Wrapper):
 
 
 class FrameAudioRecorder(gym.Wrapper):
-    """Capture every emulator frame's video + audio for making demo videos with
-    sound. Placed INSIDE the frame-skip so no frames/audio are dropped (the agent
-    still decides once per skip; we just record all the in-between frames)."""
+    """Capture every emulator frame's video + audio. Placed INSIDE the frame-skip
+    so no frames/audio are dropped (the agent still decides once per skip; we just
+    see all the in-between frames).
 
-    def __init__(self, env):
+    Two uses:
+      - store=True: buffer frames/audio in memory for a demo video with sound.
+      - on_frame=fn: call fn(frame, audio) per frame for live playback (the
+        callback can write audio to a sounddevice stream and draw the frame).
+    """
+
+    def __init__(self, env, on_frame=None, store=True):
         super().__init__(env)
+        self.on_frame = on_frame
+        self.store = store
         self.frames = []
         self.audio = []
 
     def step(self, action):
         out = self.env.step(action)
-        self.frames.append(self.env.unwrapped.render())          # native RGB frame
-        self.audio.append(self.env.unwrapped.em.get_audio().copy())  # (N,2) int16
+        frame = self.env.unwrapped.render()              # native RGB frame
+        audio = self.env.unwrapped.em.get_audio().copy()  # (N, 2) int16
+        if self.store:
+            self.frames.append(frame)
+            self.audio.append(audio)
+        if self.on_frame is not None:
+            self.on_frame(frame, audio)
         return out
 
 

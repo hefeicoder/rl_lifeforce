@@ -30,3 +30,6 @@ ram_dumps/
 
 # macOS
 .DS_Store
+
+# runtime logs
+*.log

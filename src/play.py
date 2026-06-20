@@ -1,16 +1,18 @@
 """Watch / evaluate a trained Life Force agent.
 
-Two viewing modes:
-  --render video  (default) : record an MP4. Add --audio for game sound.
-  --render human            : live OpenCV window (no sound; --scale/--aspect).
+Two viewing modes, each with optional --audio:
+  --render video  (default) : record an MP4 (add --audio to mux game sound)
+  --render human            : live OpenCV window (--scale/--aspect; add --audio
+                              for real-time sound via sounddevice)
 
-The live window has no audio (OpenCV can't play sound); use --render video
---audio for a clip with sound. Reports per-episode score, survival, and clear.
+Live sound uses sounddevice in blocking-write mode: the audio buffer paces the
+loop to real time, so video stays synced. It needs the machine mostly to itself
+(a busy CPU causes audio-underrun clicks) — stop training first.
 
 Usage:
   python -m src.play --model checkpoints/lifeforce_ppo_final.zip --episodes 3
   python -m src.play --model ... --render video --audio
-  python -m src.play --model ... --render human --scale 3
+  python -m src.play --model ... --render human --scale 3 --audio
 """
 import argparse
 import os
@@ -72,12 +74,36 @@ def main():
     args = p.parse_args()
 
     live = args.render == "human"
-    record_av = args.audio and not live
+    record_av = args.audio          # capture every frame's video+audio when sound is wanted
     env = make_env(render_mode="rgb_array", record_av=record_av)
     model = PPO.load(args.model)
-    recorder = find_recorder(env)            # full-rate frame+audio buffer (if --audio)
+    recorder = find_recorder(env)
 
-    frames, cleared_count = [], 0            # used for the silent-video path
+    # Live + sound: stream audio (blocking write paces to real-time) and draw each
+    # frame from the recorder's per-frame hook.
+    audio_stream = None
+    quit_flag = {"q": False}
+    if live and args.audio:
+        import sounddevice as sd
+        rate = int(round(env.unwrapped.em.get_audio_rate()))
+        audio_stream = sd.OutputStream(samplerate=rate, channels=2, dtype="int16")
+        audio_stream.start()
+
+        def _on_frame(frame, audio):
+            audio_stream.write(audio)          # blocks ~1 frame -> real-time clock + sound
+            w, h = _display_size(frame, args.scale, args.aspect)
+            disp = cv2.resize(frame, (w, h), interpolation=cv2.INTER_NEAREST)
+            cv2.imshow(WINDOW, cv2.cvtColor(disp, cv2.COLOR_RGB2BGR))
+            if cv2.waitKey(1) & 0xFF == ord("q"):
+                quit_flag["q"] = True
+
+        recorder.on_frame = _on_frame
+        recorder.store = False                 # stream live; don't buffer in memory
+
+    # which path renders inside the loop (the recorder hook handles live+audio)
+    loop_renders = (live and not args.audio) or (not live and not record_av)
+
+    frames, cleared_count = [], 0
     for ep in range(args.episodes):
         obs, info = env.reset(seed=ep)
         done = False
@@ -85,25 +111,31 @@ def main():
         while not done:
             action, _ = model.predict(obs, deterministic=args.deterministic)
             obs, reward, term, trunc, info = env.step(int(action))
-            frame = env.unwrapped.render()
-            if live:
-                w, h = _display_size(frame, args.scale, args.aspect)
-                disp = cv2.resize(frame, (w, h), interpolation=cv2.INTER_NEAREST)
-                cv2.imshow(WINDOW, cv2.cvtColor(disp, cv2.COLOR_RGB2BGR))
-                if cv2.waitKey(max(1, int(1000 / args.fps))) & 0xFF == ord("q"):
-                    done = True
-            elif not record_av:
-                frames.append(frame)         # recorder handles frames when --audio
+            if loop_renders:
+                frame = env.unwrapped.render()
+                if live:                       # live, no sound: draw every 4th frame
+                    w, h = _display_size(frame, args.scale, args.aspect)
+                    disp = cv2.resize(frame, (w, h), interpolation=cv2.INTER_NEAREST)
+                    cv2.imshow(WINDOW, cv2.cvtColor(disp, cv2.COLOR_RGB2BGR))
+                    if cv2.waitKey(max(1, int(1000 / args.fps))) & 0xFF == ord("q"):
+                        done = True
+                else:                          # silent video: buffer agent-step frames
+                    frames.append(frame)
             ep_reward += reward
             steps += 1
-            done = done or term or trunc
+            done = done or term or trunc or quit_flag["q"]
         cleared = info.get("stage_cleared", False)
         cleared_count += int(cleared)
         print(f"ep {ep}: score={info.get('score')} steps={steps} "
               f"reward={ep_reward:.1f} max_x={info.get('x_pos')} "
               f"{'CLEARED LEVEL 1' if cleared else 'did not clear'}")
+        if quit_flag["q"]:
+            break
 
     print(f"\ncleared {cleared_count}/{args.episodes} episodes")
+    if audio_stream is not None:
+        audio_stream.stop()
+        audio_stream.close()
     if live:
         cv2.destroyAllWindows()
     else:
