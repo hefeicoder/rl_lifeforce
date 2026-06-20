@@ -26,35 +26,6 @@ own ROM, and extending the game integration (finding RAM addresses) yourself.
 - ⬜ Confirm the stage-clear detector from the first captured Stage-2 transition.
 - ⬜ Train to clear Level 1.
 
-## Train
-
-Prerequisites: complete **Quickstart** (venv + `requirements.txt` +
-`setup_stable_retro.sh`) and **import your ROM**. Then activate the venv:
-
-```bash
-source .venv/bin/activate
-```
-
-```bash
-python -m src.train                       # full run (CPU)
-python -m src.train --smoke               # tiny end-to-end sanity check
-python -m src.play --model checkpoints/lifeforce_ppo_final.zip --episodes 3
-```
-
-**Device:** train on **CPU** (the default). This workload is *env-bound* —
-stepping the NES emulators dominates, and NatureCNN is too small for a GPU to
-help. Benchmarked on an M-series Mac, `--device mps` was ~25% *slower* (CPU↔GPU
-transfer overhead with no compute win). The real speed lever is `N_ENVS` up to
-your physical core count, not the GPU.
-
-Reward design (see `src/config.py`): **survival is #1**, but enforced by ending
-the episode on death (dying forfeits all remaining reward) rather than a large
-idle bonus — so the agent stays alive *in order to* **score** (the main positive
-signal, which keeps play active and fun to watch). A **clear bonus** rewards
-reaching Stage 2 (and auto-captures the Stage-2 RAM). The action set **hardwires
-fire** — shooting is always optimal in this game, so the agent chooses only
-movement.
-
 ## Quickstart
 
 ### 1. Install (Apple Silicon / macOS)
@@ -90,6 +61,53 @@ stable-retro identifies the ROM by the SHA-1 of its *headerless* data
 python -c "import stable_retro as retro; env = retro.make('LifeForce-Nes-v0', state='1Player.Level1'); print(env.reset()[0].shape); env.close()"
 ```
 
+## Train
+
+With the venv active and your ROM imported:
+
+```bash
+python -m src.train            # full run on CPU; 8 emulators in parallel
+python -m src.train --smoke    # tiny end-to-end sanity check first
+```
+
+Training runs **`N_ENVS = 8`** NES emulators in parallel (`SubprocVecEnv`, one
+per process — stable-retro allows only one emulator per process) to collect
+decorrelated experience. All hyperparameters, reward weights, and the action set
+live in [`src/config.py`](src/config.py).
+
+Watch live in TensorBoard:
+
+```bash
+tensorboard --logdir tb_logs   # then open http://localhost:6006
+```
+
+Useful charts: `reward/total` and its breakdown `reward/{score,alive,death,clear}`,
+plus `lifeforce/clear_rate`. Healthy learning shows `reward/score` rising
+*together with* `reward/alive` (active, scoring play — not camping).
+
+**Device:** train on **CPU** (the default). This workload is *env-bound* —
+stepping the NES emulators dominates, and NatureCNN is too small for a GPU to
+help. Benchmarked on an M-series Mac, `--device mps` was ~25% *slower*.
+
+**Reward design** (see `src/config.py`): **survival is #1**, enforced by ending
+the episode on death (dying forfeits all remaining reward) rather than a large
+idle bonus — so the agent stays alive *in order to* **score** (the main positive
+signal, which keeps play active and fun to watch). A **clear bonus** rewards
+reaching Stage 2 (and auto-captures the Stage-2 RAM). The action set **hardwires
+fire** — shooting is always optimal here, so the agent picks only movement.
+
+## Watch a trained agent
+
+```bash
+# record an mp4 (silent)
+python -m src.play --model checkpoints/lifeforce_ppo_final.zip --episodes 3
+# record an mp4 with game sound
+python -m src.play --model checkpoints/lifeforce_ppo_final.zip --render video --audio
+# live window (3x, 4:3) — add --audio for real-time sound (stop training first)
+python -m src.play --model checkpoints/lifeforce_ppo_final.zip --render human --scale 3
+python -m src.play --model checkpoints/lifeforce_ppo_final.zip --render human --audio
+```
+
 ## The interesting part: build & integration notes
 
 We hit (and documented) three non-obvious blockers getting stable-retro running
@@ -99,7 +117,7 @@ and modern clang refusing to compile the old Genesis/PCE cores. Full writeup:
 
 ## Licensing
 
-- This project's code: MIT (see `LICENSE`, to be added).
+- This project's code: MIT (see `LICENSE`).
 - stable-retro: MIT. The NES core it builds (`fceumm`): **GPLv2** — which is why
   we ship a build *script*, not a prebuilt binary.
 - ROMs: not included, not redistributable. Bring your own.
