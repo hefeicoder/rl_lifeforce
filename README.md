@@ -98,14 +98,14 @@ fire** — shooting is always optimal here, so the agent picks only movement.
 
 ## Watch a trained agent
 
+The default is a **live 3× window with game sound** (stop training first so the
+audio doesn't stutter):
+
 ```bash
-# record an mp4 (silent)
-python -m src.play --model checkpoints/lifeforce_ppo_final.zip --episodes 3
-# record an mp4 with game sound
-python -m src.play --model checkpoints/lifeforce_ppo_final.zip --render video --audio
-# live window (3x, 4:3) — add --audio for real-time sound (stop training first)
-python -m src.play --model checkpoints/lifeforce_ppo_final.zip --render human --scale 3
-python -m src.play --model checkpoints/lifeforce_ppo_final.zip --render human --audio
+python -m src.play --model checkpoints/lifeforce_ppo_final.zip                # live window + sound
+python -m src.play --model checkpoints/lifeforce_ppo_final.zip --no-audio     # live, silent
+python -m src.play --model checkpoints/lifeforce_ppo_final.zip --render video # record an mp4 (with sound)
+python -m src.play --model checkpoints/lifeforce_ppo_final.zip --render video --no-audio  # silent mp4
 ```
 
 ## The interesting part: build & integration notes

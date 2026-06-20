@@ -1,18 +1,19 @@
 """Watch / evaluate a trained Life Force agent.
 
-Two viewing modes, each with optional --audio:
-  --render video  (default) : record an MP4 (add --audio to mux game sound)
-  --render human            : live OpenCV window (--scale/--aspect; add --audio
-                              for real-time sound via sounddevice)
+Default is a live 3x window with game sound. Modes:
+  (default)        : live OpenCV window + sound (== --render human --audio --scale 3)
+  --render video   : record an MP4 instead (keeps sound; --no-audio for silent)
+  --no-audio       : disable sound
 
 Live sound uses sounddevice in blocking-write mode: the audio buffer paces the
 loop to real time, so video stays synced. It needs the machine mostly to itself
 (a busy CPU causes audio-underrun clicks) — stop training first.
 
 Usage:
-  python -m src.play --model checkpoints/lifeforce_ppo_final.zip --episodes 3
-  python -m src.play --model ... --render video --audio
-  python -m src.play --model ... --render human --scale 3 --audio
+  python -m src.play --model checkpoints/lifeforce_ppo_final.zip             # live + sound
+  python -m src.play --model ... --render human --no-audio                   # live, silent
+  python -m src.play --model ... --render video                             # mp4 with sound
+  python -m src.play --model ... --render video --no-audio                  # silent mp4
 """
 import argparse
 import os
@@ -62,10 +63,10 @@ def main():
     p.add_argument("--model", required=True, help="path to a trained .zip")
     p.add_argument("--episodes", type=int, default=3)
     p.add_argument("--deterministic", action="store_true")
-    p.add_argument("--render", choices=["video", "human"], default="video",
-                   help="'video' records an mp4; 'human' opens a live window")
-    p.add_argument("--audio", action="store_true",
-                   help="(video mode) capture game sound and mux into the mp4")
+    p.add_argument("--render", choices=["video", "human"], default="human",
+                   help="'human' = live window (default); 'video' = record an mp4")
+    p.add_argument("--audio", action=argparse.BooleanOptionalAction, default=True,
+                   help="game sound (default on; --no-audio to disable)")
     p.add_argument("--fps", type=int, default=30, help="pacing for live --render human")
     p.add_argument("--scale", type=int, default=3, help="live window size = native x scale")
     p.add_argument("--aspect", type=float, default=4 / 3,
