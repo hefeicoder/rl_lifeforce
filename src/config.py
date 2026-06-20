@@ -89,6 +89,9 @@ GAE_LAMBDA = 0.95
 CLIP_RANGE = 0.1
 ENT_COEF = 0.01
 TARGET_KL = 0.02             # early-stop an update if policy moves too far (anti-collapse)
+NORM_REWARD = True           # VecNormalize returns to ~unit variance (stabilizes the critic
+                             # against large/high-variance rewards -> damps reward oscillation)
+CLIP_REWARD = 10.0           # clip the normalized reward to this range
 LR_ANNEAL = True             # linearly decay learning rate over training (stability)
 LR_FLOOR = 0.1               # anneal down to this fraction of initial LR (0.0 = all the way to 0).
                              # A small floor keeps the policy learning at the end of a run, which

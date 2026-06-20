@@ -14,10 +14,12 @@ from collections import deque
 
 from stable_baselines3 import PPO
 from stable_baselines3.common.callbacks import CheckpointCallback, BaseCallback
-from stable_baselines3.common.vec_env import SubprocVecEnv, VecMonitor
+from stable_baselines3.common.vec_env import SubprocVecEnv, VecMonitor, VecNormalize
 
 from . import config as C
 from .env import make_thunk
+
+VECNORM_PATH = os.path.join(C.CHECKPOINT_DIR, "vecnormalize.pkl")
 
 
 class LifeForceStatsCallback(BaseCallback):
@@ -57,7 +59,14 @@ class LifeForceStatsCallback(BaseCallback):
 
 
 def build_vec_env(n_envs):
-    return VecMonitor(SubprocVecEnv([make_thunk(seed=i) for i in range(n_envs)]))
+    # Order: SubprocVecEnv -> VecMonitor (logs RAW episode returns) -> VecNormalize
+    # (normalizes only what the algorithm trains on; raw reward_components in info
+    # are untouched, so TensorBoard reward/* stays interpretable).
+    venv = VecMonitor(SubprocVecEnv([make_thunk(seed=i) for i in range(n_envs)]))
+    if C.NORM_REWARD:
+        venv = VecNormalize(venv, norm_obs=False, norm_reward=True,
+                            clip_reward=C.CLIP_REWARD, gamma=C.GAMMA)
+    return venv
 
 
 def linear_schedule(initial, floor=0.0):
@@ -111,6 +120,8 @@ def main():
 
     final = os.path.join(C.CHECKPOINT_DIR, "lifeforce_ppo_final.zip")
     model.save(final)
+    if isinstance(venv, VecNormalize):
+        venv.save(VECNORM_PATH)          # reward-norm stats (for resume); play.py doesn't need it
     print(f"Saved final model -> {final}")
     venv.close()
 
