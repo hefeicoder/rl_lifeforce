@@ -1,0 +1,29 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+
+# stable-retro source (built locally via scripts/setup_stable_retro.sh)
+third_party/
+
+# Native build artifacts (never commit — see docs/macos_arm64_build.md, GPL core)
+*.so
+*.dylib
+
+# ROMs — never commit copyrighted ROMs. Bring your own.
+*.nes
+*.sfc
+*.smc
+*.md5
+
+# Training outputs
+checkpoints/
+tb_logs/
+videos/
+*.zip
+
+# macOS
+.DS_Store

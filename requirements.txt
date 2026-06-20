@@ -1,0 +1,14 @@
+# RL stack. stable-retro itself is NOT listed here — on Apple Silicon it must be
+# built from source via scripts/setup_stable_retro.sh (the PyPI wheel is broken;
+# see docs/macos_arm64_build.md). On Linux you can `pip install stable-retro`.
+#
+# stable-retro pulls in a compatible gymnasium + numpy, so we don't pin those
+# here to avoid fighting its resolver.
+
+stable-baselines3>=2.3
+torch>=2.2
+opencv-python>=4.9
+tensorboard>=2.16
+imageio>=2.34
+imageio-ffmpeg>=0.4
+pillow>=10.0
