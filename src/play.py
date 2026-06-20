@@ -16,6 +16,7 @@ Usage:
   python -m src.play --model ... --render video --no-audio                  # silent mp4
 """
 import argparse
+import gzip
 import os
 import subprocess
 import tempfile
@@ -71,12 +72,17 @@ def main():
     p.add_argument("--scale", type=int, default=3, help="live window size = native x scale")
     p.add_argument("--aspect", type=float, default=4 / 3,
                    help="live window width:height ratio (0 = keep native, ~square)")
+    p.add_argument("--from-state", default=None, dest="from_state",
+                   help="start every episode from a saved .state (e.g. states/l1_gauntlet.state)")
     p.add_argument("--out", default=os.path.join(C.VIDEO_DIR, "play.mp4"))
     args = p.parse_args()
 
     live = args.render == "human"
     record_av = args.audio          # capture every frame's video+audio when sound is wanted
     env = make_env(render_mode="rgb_array", record_av=record_av)
+    if args.from_state:             # start from a captured curriculum/wall state
+        with gzip.open(args.from_state, "rb") as fh:
+            env.unwrapped.initial_state = fh.read()
     model = PPO.load(args.model)
     recorder = find_recorder(env)
 
