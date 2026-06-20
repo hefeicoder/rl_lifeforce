@@ -25,5 +25,8 @@ tb_logs/
 videos/
 *.zip
 
+# RAM-hunt dumps (binary snapshots; regenerate via tools/ram_hunt.py)
+ram_dumps/
+
 # macOS
 .DS_Store
