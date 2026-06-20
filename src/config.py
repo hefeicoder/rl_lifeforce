@@ -88,6 +88,8 @@ GAMMA = 0.99
 GAE_LAMBDA = 0.95
 CLIP_RANGE = 0.1
 ENT_COEF = 0.01
+TARGET_KL = 0.02             # early-stop an update if policy moves too far (anti-collapse)
+LR_ANNEAL = True             # linearly decay learning rate to 0 over training (stability)
 TOTAL_TIMESTEPS = 5_000_000
 CHECKPOINT_EVERY = 100_000   # save a checkpoint every N total timesteps (--save-freq)
 
