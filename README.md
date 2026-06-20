@@ -105,6 +105,24 @@ Speed. Rewarding increases means upgrade caps self-enforce (a maxed upgrade can'
 rise → earns nothing → no wasted-capsule incentive). Addresses and weights are
 in `src/config.py`; the breakdown shows as `reward/powerup` in TensorBoard.
 
+## Getting past hard sections (save-state curriculum)
+
+When the agent plateaus at a specific spot (a terrain wall, a boss), drill it:
+
+```bash
+# 1. Capture the wall — the agent's own death point defines it:
+python -m tools.capture_state --model checkpoints/lifeforce_ppo_<N>_steps.zip --name l1_gauntlet
+# 2. Resume — training auto-mixes states/l1_gauntlet.state into ~50% of episodes:
+python -m src.train --resume checkpoints/lifeforce_ppo_<N>_steps.zip
+```
+
+Any `*.state` file dropped in `states/` becomes a possible start state
+(re-scanned every reset), so adding a new hard spot is just **capture + resume —
+no code edits**. The level's real start is always kept too, so the agent still
+learns the whole stage and we can measure true clears. Tune the drill ratio with
+`CURRICULUM_MIX` in `config.py`. (Save states embed ROM-derived data, so `states/`
+is gitignored — regenerate with the capture tool.)
+
 ## Watch a trained agent
 
 The default is a **live 3× window with game sound** (stop training first so the

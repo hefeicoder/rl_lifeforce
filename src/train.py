@@ -58,15 +58,18 @@ class LifeForceStatsCallback(BaseCallback):
         return True
 
 
-def build_vec_env(n_envs):
+def build_vec_env(n_envs, load_norm=None):
     # Order: SubprocVecEnv -> VecMonitor (logs RAW episode returns) -> VecNormalize
     # (normalizes only what the algorithm trains on; raw reward_components in info
     # are untouched, so TensorBoard reward/* stays interpretable).
-    venv = VecMonitor(SubprocVecEnv([make_thunk(seed=i) for i in range(n_envs)]))
-    if C.NORM_REWARD:
-        venv = VecNormalize(venv, norm_obs=False, norm_reward=True,
-                            clip_reward=C.CLIP_REWARD, gamma=C.GAMMA)
-    return venv
+    base = VecMonitor(SubprocVecEnv([make_thunk(seed=i) for i in range(n_envs)]))
+    if not C.NORM_REWARD:
+        return base
+    if load_norm and os.path.exists(load_norm):
+        print(f"Loading reward-norm stats from {load_norm}")
+        return VecNormalize.load(load_norm, base)
+    return VecNormalize(base, norm_obs=False, norm_reward=True,
+                        clip_reward=C.CLIP_REWARD, gamma=C.GAMMA)
 
 
 def linear_schedule(initial, floor=0.0):
@@ -93,7 +96,7 @@ def main():
         args.timesteps, args.n_envs = 4096, 2
 
     os.makedirs(C.CHECKPOINT_DIR, exist_ok=True)
-    venv = build_vec_env(args.n_envs)
+    venv = build_vec_env(args.n_envs, load_norm=(VECNORM_PATH if args.resume else None))
 
     if args.resume:
         print(f"Resuming from {args.resume}")

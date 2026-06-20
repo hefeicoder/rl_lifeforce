@@ -33,3 +33,6 @@ ram_dumps/
 
 # runtime logs
 *.log
+
+# curriculum save states (ROM-derived; regenerate via tools/capture_state)
+states/

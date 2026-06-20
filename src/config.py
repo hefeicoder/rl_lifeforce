@@ -102,6 +102,14 @@ LR_FLOOR = 0.1               # anneal down to this fraction of initial LR (0.0 =
 TOTAL_TIMESTEPS = 5_000_000
 CHECKPOINT_EVERY = 100_000   # save a checkpoint every N total timesteps (--save-freq)
 
+# --- Curriculum (save-state practice for hard sections) ----------------------
+# Drop-in design: any *.state file in CURRICULUM_DIR becomes a possible start
+# state. Capture one at a wall with tools/capture_state.py, then just resume —
+# no code/config edits per wall. The level's real start is always kept too, so
+# the agent still learns the whole stage and we can measure true clears.
+CURRICULUM_DIR = "states"   # directory of *.state files (gitignored; regenerate via capture)
+CURRICULUM_MIX = 0.5        # P(episode starts from a random curriculum state vs the level start)
+
 # --- Paths -------------------------------------------------------------------
 CHECKPOINT_DIR = "checkpoints"
 TB_LOG_DIR = "tb_logs"

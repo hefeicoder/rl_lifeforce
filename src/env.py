@@ -12,6 +12,8 @@ Builds a Gymnasium/SB3-ready env from stable-retro:
 stable-retro is natively Gymnasium-compatible, so unlike the Mario project no
 shimmy/compat shims are needed.
 """
+import glob
+import gzip
 import os
 
 import numpy as np
@@ -25,6 +27,34 @@ from gymnasium.wrappers import (
 import stable_retro as retro
 
 from . import config as C
+
+
+class CurriculumStart(gym.Wrapper):
+    """On reset, start either from the level's default state or — with prob
+    ``mix`` — a random saved state in ``curriculum_dir`` (so the agent can drill
+    hard sections). The directory is re-scanned every reset, so new .state files
+    (from tools/capture_state, or a future auto-curriculum) are picked up live
+    without restarting training.
+    """
+
+    def __init__(self, env, curriculum_dir, mix, rng_seed=0):
+        super().__init__(env)
+        self._dir = curriculum_dir
+        self._mix = mix
+        self._rng = np.random.default_rng(rng_seed)
+        self._default_state = None  # the level's real start, captured on first reset
+
+    def reset(self, **kwargs):
+        u = self.env.unwrapped
+        if self._default_state is None:
+            self._default_state = u.initial_state
+        states = sorted(glob.glob(os.path.join(self._dir, "*.state"))) if self._dir else []
+        if states and self._rng.random() < self._mix:
+            with gzip.open(states[self._rng.integers(len(states))], "rb") as fh:
+                u.initial_state = fh.read()
+        else:
+            u.initial_state = self._default_state
+        return self.env.reset(**kwargs)
 
 
 class Discretizer(gym.ActionWrapper):
@@ -222,13 +252,17 @@ def find_recorder(env):
     return None
 
 
-def make_env(render_mode=None, preprocess=True, record_av=False):
+def make_env(render_mode=None, preprocess=True, record_av=False, curriculum=False, seed=0):
     """Build one fully-wrapped Life Force env (a thunk-friendly constructor).
 
     record_av=True inserts a FrameAudioRecorder inside the frame-skip so play.py
-    can write a video with sound.
+    can write a video with sound. curriculum=True lets episodes start from saved
+    states in CURRICULUM_DIR (for drilling hard sections); seed varies the
+    per-env start-state sampling.
     """
     env = retro.make(C.GAME, state=C.STATE, render_mode=render_mode)
+    if curriculum:
+        env = CurriculumStart(env, C.CURRICULUM_DIR, C.CURRICULUM_MIX, rng_seed=seed)
     env = Discretizer(env, C.MOVES, C.ACTIVATE_BUTTON)
     if record_av:
         env = FrameAudioRecorder(env)
@@ -243,10 +277,12 @@ def make_env(render_mode=None, preprocess=True, record_av=False):
     return env
 
 
-def make_thunk(seed=0, render_mode=None):
-    """Return a callable that builds a seeded env (for SB3 vec env constructors)."""
+def make_thunk(seed=0, render_mode=None, curriculum=True):
+    """Return a callable that builds a seeded env (for SB3 vec env constructors).
+    Training envs use curriculum=True so they can start from saved hard-section
+    states; seed varies both env seeding and curriculum sampling per env."""
     def _init():
-        env = make_env(render_mode=render_mode)
+        env = make_env(render_mode=render_mode, curriculum=curriculum, seed=seed)
         env.reset(seed=seed)
         return env
     return _init
