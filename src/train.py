@@ -101,6 +101,8 @@ def main():
                    help="save a checkpoint every N total timesteps")
     p.add_argument("--run-name", default=None, dest="run_name",
                    help="name for this run's output folder (default: timestamp)")
+    p.add_argument("--ent-coef", type=float, default=None, dest="ent_coef",
+                   help="override entropy coefficient (higher = more exploration; default config.ENT_COEF)")
     args = p.parse_args()
 
     if args.smoke:
@@ -118,16 +120,18 @@ def main():
     load_norm = os.path.join(os.path.dirname(args.resume) or ".", VECNORM_NAME) if args.resume else None
     venv = build_vec_env(args.n_envs, load_norm=load_norm)
 
+    ent_coef = args.ent_coef if args.ent_coef is not None else C.ENT_COEF
     if args.resume:
         print(f"Resuming from {args.resume}")
         model = PPO.load(args.resume, env=venv, tensorboard_log=C.TB_LOG_DIR)
+        model.ent_coef = ent_coef          # allow raising exploration on resume
     else:
         lr = linear_schedule(C.LEARNING_RATE, C.LR_FLOOR) if C.LR_ANNEAL else C.LEARNING_RATE
         model = PPO(
             "CnnPolicy", venv,
             n_steps=C.N_STEPS, n_epochs=C.N_EPOCHS, batch_size=C.BATCH_SIZE,
             learning_rate=lr, gamma=C.GAMMA, gae_lambda=C.GAE_LAMBDA,
-            clip_range=C.CLIP_RANGE, ent_coef=C.ENT_COEF, target_kl=C.TARGET_KL,
+            clip_range=C.CLIP_RANGE, ent_coef=ent_coef, target_kl=C.TARGET_KL,
             tensorboard_log=C.TB_LOG_DIR, verbose=1, device=args.device,
         )
 
