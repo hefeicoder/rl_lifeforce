@@ -61,6 +61,33 @@ class LifeForceWrapper(gym.Wrapper):
     def _ram(self):
         return self.env.unwrapped.get_ram()
 
+    def _read_powerups(self, ram):
+        return {
+            "powerbar": int(ram[C.ADDR_POWERBAR]),
+            "missile": int(ram[C.ADDR_MISSILE]),
+            "options": int(ram[C.ADDR_OPTIONS]),
+            "shield": int(ram[C.ADDR_SHIELD]),
+            "speed": int(ram[C.ADDR_SPEED]),
+        }
+
+    def _powerup_reward(self, ram):
+        """Reward only INCREASES in power-up state, so upgrade caps self-enforce
+        (a maxed value can't rise -> no reward -> no wasted-capsule incentive)."""
+        cur, prev = self._read_powerups(ram), self._prev_pu
+        r = 0.0
+        if cur["powerbar"] > prev["powerbar"]:
+            r += C.REWARD_CAPSULE * (cur["powerbar"] - prev["powerbar"])  # ate capsule(s)
+        if cur["missile"] > prev["missile"]:
+            r += C.REWARD_MISSILE
+        if cur["options"] > prev["options"]:
+            r += C.REWARD_OPTION * (cur["options"] - prev["options"])
+        if cur["shield"] > prev["shield"]:
+            r += C.REWARD_FORCEFIELD
+        if cur["speed"] > prev["speed"]:
+            r += C.REWARD_SPEED * (cur["speed"] - prev["speed"])
+        self._prev_pu = cur
+        return r
+
     def reset(self, **kwargs):
         obs, info = self.env.reset(**kwargs)
         ram = self._ram()
@@ -69,8 +96,9 @@ class LifeForceWrapper(gym.Wrapper):
         self._start_vertical = int(ram[C.ADDR_STAGE_VERTICAL])
         self._cleared = False
         self._steps = 0
+        self._prev_pu = self._read_powerups(ram)
         # running per-episode reward breakdown
-        self._ep = {"score": 0.0, "alive": 0.0, "death": 0.0, "clear": 0.0}
+        self._ep = {"score": 0.0, "alive": 0.0, "death": 0.0, "clear": 0.0, "powerup": 0.0}
         return obs, self._augment(info, ram)
 
     def step(self, action):
@@ -109,11 +137,15 @@ class LifeForceWrapper(gym.Wrapper):
         if self._steps >= C.MAX_EPISODE_STEPS:
             truncated = True
 
-        total = r_score + r_alive + r_death + r_clear
+        # 2b) power-ups: eat capsules, accumulate, spend (Missile/Option/Force Field)
+        r_powerup = self._powerup_reward(ram)
+
+        total = r_score + r_alive + r_death + r_clear + r_powerup
         self._ep["score"] += r_score
         self._ep["alive"] += r_alive
         self._ep["death"] += r_death
         self._ep["clear"] += r_clear
+        self._ep["powerup"] += r_powerup
         if terminated or truncated:
             info["reward_components"] = dict(self._ep)
 

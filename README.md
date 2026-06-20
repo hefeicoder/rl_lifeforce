@@ -96,6 +96,12 @@ signal, which keeps play active and fun to watch). A **clear bonus** rewards
 reaching Stage 2 (and auto-captures the Stage-2 RAM). The action set **hardwires
 fire** — shooting is always optimal here, so the agent picks only movement.
 
+**Power-ups** (the Gradius-style meter) are shaped too: small bonuses for *state
+increases* — eating a capsule, then gaining a Missile / Option / Force Field /
+Speed. Rewarding increases means upgrade caps self-enforce (a maxed upgrade can't
+rise → earns nothing → no wasted-capsule incentive). Addresses and weights are
+in `src/config.py`; the breakdown shows as `reward/powerup` in TensorBoard.
+
 ## Watch a trained agent
 
 The default is a **live 3× window with game sound** (stop training first so the

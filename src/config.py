@@ -16,6 +16,17 @@ ADDR_Y_POS = 0x32F         # P1 Y position (24..197)
 ADDR_STAGE_NUM = 0x23      # "Demo Stage Num?" — stage-transition suspect
 ADDR_STAGE_VERTICAL = 0x40  # "Is Stage Vertical?" — flips 0->1 on the vertical Stage 2
 
+# Power-up / weapon state (Data Crystal, verified via tools/ram_hunt). The agent
+# can read these to learn the Gradius-style meter: collect capsules (0x78 cursor
+# advances), then spend to gain upgrades. Caps are inherent (e.g. options <= 2).
+ADDR_POWERBAR = 0x78       # power-bar cursor (1=speed,2=missile,3=ripple,4=laser,5=option,6=force field)
+ADDR_SPEED = 0x80          # speed level (up to 10)
+ADDR_SHIELD = 0x82         # Force Field / shield strength (starts at 5 hits when activated)
+ADDR_MISSILE = 0x86        # Missile equipped
+ADDR_OPTIONS = 0x8A        # Options / Multiples (up to 2)
+ADDR_WEAPON = 0x76         # 0=Normal, 1=Ripple, 2=Laser
+ADDR_CTRL = 0x70           # player control state (3=active, 4/5=dying, 1/2=flying in)
+
 # --- Action set --------------------------------------------------------------
 # Reduced discrete action set for a shmup. In Life Force firing has no cost, so
 # shooting is weakly dominant (never worse than not shooting) -> we HARDWIRE fire
@@ -51,6 +62,16 @@ REWARD_DEATH = 5.0          # penalty subtracted when a life is lost
 REWARD_CLEAR = 100.0        # bonus for clearing the stage (the goal)
 END_ON_LIFE_LOSS = True     # the real "survival is #1" lever: death ends the episode
 MAX_EPISODE_STEPS = 2000    # agent-step time limit (post frame-skip)
+
+# Power-up shaping (one-time bonuses on STATE INCREASES, so upgrade caps are
+# self-enforcing — a maxed upgrade can't increase, so it earns nothing and the
+# agent learns not to waste capsules on it). Teaches: eat capsules, accumulate,
+# spend well. Priority for scoring: Missile > Option > Force Field.
+REWARD_CAPSULE = 0.5        # ate a capsule (power-bar cursor advanced)
+REWARD_MISSILE = 3.0        # acquired Missile
+REWARD_OPTION = 3.0         # acquired an Option (max 2)
+REWARD_FORCEFIELD = 2.0     # gained Force Field / refilled shield
+REWARD_SPEED = 0.5          # speed-up (minor; aids dodging)
 
 # --- Preprocessing -----------------------------------------------------------
 FRAME_SKIP = 4

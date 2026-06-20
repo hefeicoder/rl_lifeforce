@@ -49,7 +49,7 @@ class LifeForceStatsCallback(BaseCallback):
             self.logger.record("lifeforce/clear_rate", self._clears / self._episodes)
         if self._comp:
             n = len(self._comp)
-            for k in ("score", "alive", "death", "clear"):
+            for k in self._comp[0]:              # score, alive, death, clear, powerup
                 self.logger.record(f"reward/{k}", sum(c[k] for c in self._comp) / n)
             self.logger.record("reward/total",
                                sum(sum(c.values()) for c in self._comp) / n)
