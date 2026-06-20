@@ -68,6 +68,7 @@ GAE_LAMBDA = 0.95
 CLIP_RANGE = 0.1
 ENT_COEF = 0.01
 TOTAL_TIMESTEPS = 5_000_000
+CHECKPOINT_EVERY = 100_000   # save a checkpoint every N total timesteps (--save-freq)
 
 # --- Paths -------------------------------------------------------------------
 CHECKPOINT_DIR = "checkpoints"

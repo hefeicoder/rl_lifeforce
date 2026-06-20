@@ -68,6 +68,8 @@ def main():
     p.add_argument("--resume", default=None, help="path to a checkpoint .zip to continue from")
     p.add_argument("--device", default="auto",
                    help="torch device: 'auto'/'cpu'/'mps' (use 'mps' for Apple-GPU acceleration)")
+    p.add_argument("--save-freq", type=int, default=C.CHECKPOINT_EVERY,
+                   help="save a checkpoint every N total timesteps")
     args = p.parse_args()
 
     if args.smoke:
@@ -88,8 +90,10 @@ def main():
             tensorboard_log=C.TB_LOG_DIR, verbose=1, device=args.device,
         )
 
+    # CheckpointCallback's save_freq counts per-env steps, so divide the desired
+    # total-timestep interval by the number of envs.
     ckpt = CheckpointCallback(
-        save_freq=max(50_000 // args.n_envs, 1),
+        save_freq=max(args.save_freq // args.n_envs, 1),
         save_path=C.CHECKPOINT_DIR, name_prefix="lifeforce_ppo",
     )
     model.learn(total_timesteps=args.timesteps,
