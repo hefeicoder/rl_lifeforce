@@ -47,10 +47,13 @@ help. Benchmarked on an M-series Mac, `--device mps` was ~25% *slower* (CPU↔GP
 transfer overhead with no compute win). The real speed lever is `N_ENVS` up to
 your physical core count, not the GPU.
 
-Reward reflects the objective (see `src/config.py`): **stay alive** (per-step
-bonus + death penalty + one life per episode), **score** (base reward), and
-**pass the level** (bonus on the Stage-2 transition, which also auto-captures
-the Stage-2 RAM to finish confirming the clear detector).
+Reward design (see `src/config.py`): **survival is #1**, but enforced by ending
+the episode on death (dying forfeits all remaining reward) rather than a large
+idle bonus — so the agent stays alive *in order to* **score** (the main positive
+signal, which keeps play active and fun to watch). A **clear bonus** rewards
+reaching Stage 2 (and auto-captures the Stage-2 RAM). The action set **hardwires
+fire** — shooting is always optimal in this game, so the agent chooses only
+movement.
 
 ## Quickstart
 

@@ -81,7 +81,7 @@ class LifeForceWrapper(gym.Wrapper):
         lives = int(ram[C.ADDR_LIVES])
         self._steps += 1
 
-        r_score = float(reward)
+        r_score = float(reward) * C.REWARD_SCORE_SCALE
         r_alive = C.REWARD_ALIVE
         r_death = 0.0
         r_clear = 0.0

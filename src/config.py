@@ -17,31 +17,39 @@ ADDR_STAGE_NUM = 0x23      # "Demo Stage Num?" — stage-transition suspect
 ADDR_STAGE_VERTICAL = 0x40  # "Is Stage Vertical?" — flips 0->1 on the vertical Stage 2
 
 # --- Action set --------------------------------------------------------------
-# Reduced discrete action set for a shmup, given as NES button-name combos.
-# We almost always want to be firing (B), so every move is paired with fire.
+# Reduced discrete action set for a shmup. In Life Force firing has no cost, so
+# shooting is weakly dominant (never worse than not shooting) -> we HARDWIRE fire
+# (B) into every action and let the agent choose only movement. This removes a
+# degree of freedom that should never be used, speeding learning.
 # NES buttons available: B, SELECT, START, UP, DOWN, LEFT, RIGHT, A.
 ACTIONS = [
-    [],                       # 0 no-op
-    ["B"],                    # 1 fire, hold position
-    ["UP", "B"],             # 2
-    ["DOWN", "B"],           # 3
-    ["LEFT", "B"],           # 4
-    ["RIGHT", "B"],          # 5
-    ["UP", "LEFT", "B"],     # 6
-    ["UP", "RIGHT", "B"],    # 7
-    ["DOWN", "LEFT", "B"],   # 8
-    ["DOWN", "RIGHT", "B"],  # 9
-    ["A"],                    # 10 activate power-up (Gradius-style gauge)
+    ["B"],                    # 0 fire, hold position
+    ["UP", "B"],             # 1
+    ["DOWN", "B"],           # 2
+    ["LEFT", "B"],           # 3
+    ["RIGHT", "B"],          # 4
+    ["UP", "LEFT", "B"],     # 5
+    ["UP", "RIGHT", "B"],    # 6
+    ["DOWN", "LEFT", "B"],   # 7
+    ["DOWN", "RIGHT", "B"],  # 8
+    ["A", "B"],               # 9 activate power-up (gauge) while firing
 ]
 
 # --- Reward shaping ----------------------------------------------------------
 # Base reward (score-delta x10) comes from the bundled scenario.json. These add
-# survival + level-clear shaping on top. See README for the priorities:
-#   1) stay alive  2) score  3) pass the level.
-REWARD_ALIVE = 0.1          # per agent-step bonus for staying alive
+# survival + level-clear shaping on top. Priorities: 1) stay alive  2) score
+#  3) pass the level.
+#
+# Design note: survival is made #1 NOT by a big alive bonus (that just pays the
+# agent to idle -> "camping") but by END_ON_LIFE_LOSS — dying forfeits all
+# remaining reward, so staying alive is essential, and the only way to cash in on
+# being alive is to SCORE. Score is therefore the main positive signal, which
+# keeps play active and fun to watch. The alive bonus is just a small dense nudge.
+REWARD_SCORE_SCALE = 1.0    # multiplier on base score reward (raise to weight scoring more)
+REWARD_ALIVE = 0.02         # small dense survival nudge (NOT the main survival driver)
 REWARD_DEATH = 5.0          # penalty subtracted when a life is lost
-REWARD_CLEAR = 50.0         # bonus when the Stage-1 -> Stage-2 transition is seen
-END_ON_LIFE_LOSS = True     # terminate the episode on the first death (1 life/episode)
+REWARD_CLEAR = 100.0        # bonus for clearing the stage (the goal)
+END_ON_LIFE_LOSS = True     # the real "survival is #1" lever: death ends the episode
 MAX_EPISODE_STEPS = 2000    # agent-step time limit (post frame-skip)
 
 # --- Preprocessing -----------------------------------------------------------
