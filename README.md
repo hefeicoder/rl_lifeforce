@@ -36,11 +36,16 @@ source .venv/bin/activate
 ```
 
 ```bash
-python -m src.train                       # full run
+python -m src.train                       # full run (CPU)
 python -m src.train --smoke               # tiny end-to-end sanity check
-python -m src.train --device mps          # Apple-GPU acceleration
 python -m src.play --model checkpoints/lifeforce_ppo_final.zip --episodes 3
 ```
+
+**Device:** train on **CPU** (the default). This workload is *env-bound* —
+stepping the NES emulators dominates, and NatureCNN is too small for a GPU to
+help. Benchmarked on an M-series Mac, `--device mps` was ~25% *slower* (CPU↔GPU
+transfer overhead with no compute win). The real speed lever is `N_ENVS` up to
+your physical core count, not the GPU.
 
 Reward reflects the objective (see `src/config.py`): **stay alive** (per-step
 bonus + death penalty + one life per episode), **score** (base reward), and
