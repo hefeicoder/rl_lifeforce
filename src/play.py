@@ -1,21 +1,58 @@
 """Watch / evaluate a trained Life Force agent.
 
-Records episodes to an MP4 (the live macOS window has a pyglet teardown bug, so
-we render to rgb_array and write video instead) and reports per-episode score,
-survival length, and whether Level 1 was cleared.
+Two viewing modes:
+  --render video  (default) : record an MP4. Add --audio for game sound.
+  --render human            : live OpenCV window (no sound; --scale/--aspect).
+
+The live window has no audio (OpenCV can't play sound); use --render video
+--audio for a clip with sound. Reports per-episode score, survival, and clear.
 
 Usage:
   python -m src.play --model checkpoints/lifeforce_ppo_final.zip --episodes 3
+  python -m src.play --model ... --render video --audio
+  python -m src.play --model ... --render human --scale 3
 """
 import argparse
 import os
+import subprocess
+import tempfile
+import wave
 
+import cv2
 import imageio
+import imageio_ffmpeg
 import numpy as np
 from stable_baselines3 import PPO
 
 from . import config as C
-from .env import make_env
+from .env import make_env, find_recorder
+
+WINDOW = "Life Force - agent"
+
+
+def _display_size(frame, scale, aspect):
+    """Target (w, h): scale the native frame, then stretch width to `aspect`
+    (NES looks right at 4:3, not at its near-square framebuffer ratio)."""
+    h, w = frame.shape[:2]
+    out_h = h * scale
+    out_w = int(round(out_h * aspect)) if aspect else w * scale
+    return out_w, out_h
+
+
+def _write_video_with_audio(frames, audio_chunks, rate, out, fps=60):
+    """Mux full-rate frames + captured audio into an MP4 via ffmpeg."""
+    ffmpeg = imageio_ffmpeg.get_ffmpeg_exe()
+    tmp = tempfile.mkdtemp()
+    vpath, apath = os.path.join(tmp, "v.mp4"), os.path.join(tmp, "a.wav")
+    imageio.mimsave(vpath, [np.asarray(f) for f in frames], fps=fps)
+    samples = np.concatenate(audio_chunks, axis=0).astype("<i2")
+    with wave.open(apath, "wb") as w:
+        w.setnchannels(2)
+        w.setsampwidth(2)
+        w.setframerate(int(round(rate)))
+        w.writeframes(samples.tobytes())
+    subprocess.run([ffmpeg, "-y", "-loglevel", "error", "-i", vpath, "-i", apath,
+                    "-c:v", "copy", "-c:a", "aac", "-shortest", out], check=True)
 
 
 def main():
@@ -23,15 +60,24 @@ def main():
     p.add_argument("--model", required=True, help="path to a trained .zip")
     p.add_argument("--episodes", type=int, default=3)
     p.add_argument("--deterministic", action="store_true")
+    p.add_argument("--render", choices=["video", "human"], default="video",
+                   help="'video' records an mp4; 'human' opens a live window")
+    p.add_argument("--audio", action="store_true",
+                   help="(video mode) capture game sound and mux into the mp4")
+    p.add_argument("--fps", type=int, default=30, help="pacing for live --render human")
+    p.add_argument("--scale", type=int, default=3, help="live window size = native x scale")
+    p.add_argument("--aspect", type=float, default=4 / 3,
+                   help="live window width:height ratio (0 = keep native, ~square)")
     p.add_argument("--out", default=os.path.join(C.VIDEO_DIR, "play.mp4"))
     args = p.parse_args()
 
-    os.makedirs(C.VIDEO_DIR, exist_ok=True)
-    # render_mode="rgb_array" so we can grab full-res frames for the video.
-    env = make_env(render_mode="rgb_array")
+    live = args.render == "human"
+    record_av = args.audio and not live
+    env = make_env(render_mode="rgb_array", record_av=record_av)
     model = PPO.load(args.model)
+    recorder = find_recorder(env)            # full-rate frame+audio buffer (if --audio)
 
-    frames, cleared_count = [], 0
+    frames, cleared_count = [], 0            # used for the silent-video path
     for ep in range(args.episodes):
         obs, info = env.reset(seed=ep)
         done = False
@@ -39,10 +85,18 @@ def main():
         while not done:
             action, _ = model.predict(obs, deterministic=args.deterministic)
             obs, reward, term, trunc, info = env.step(int(action))
-            frames.append(env.unwrapped.render())
+            frame = env.unwrapped.render()
+            if live:
+                w, h = _display_size(frame, args.scale, args.aspect)
+                disp = cv2.resize(frame, (w, h), interpolation=cv2.INTER_NEAREST)
+                cv2.imshow(WINDOW, cv2.cvtColor(disp, cv2.COLOR_RGB2BGR))
+                if cv2.waitKey(max(1, int(1000 / args.fps))) & 0xFF == ord("q"):
+                    done = True
+            elif not record_av:
+                frames.append(frame)         # recorder handles frames when --audio
             ep_reward += reward
             steps += 1
-            done = term or trunc
+            done = done or term or trunc
         cleared = info.get("stage_cleared", False)
         cleared_count += int(cleared)
         print(f"ep {ep}: score={info.get('score')} steps={steps} "
@@ -50,8 +104,17 @@ def main():
               f"{'CLEARED LEVEL 1' if cleared else 'did not clear'}")
 
     print(f"\ncleared {cleared_count}/{args.episodes} episodes")
-    imageio.mimsave(args.out, [np.asarray(f) for f in frames], fps=30)
-    print(f"video -> {args.out}")
+    if live:
+        cv2.destroyAllWindows()
+    else:
+        os.makedirs(C.VIDEO_DIR, exist_ok=True)
+        if record_av:
+            rate = env.unwrapped.em.get_audio_rate()
+            _write_video_with_audio(recorder.frames, recorder.audio, rate, args.out)
+            print(f"video (with sound) -> {args.out}")
+        else:
+            imageio.mimsave(args.out, [np.asarray(f) for f in frames], fps=30)
+            print(f"video -> {args.out}")
     try:
         env.close()
     except Exception:

@@ -10,6 +10,7 @@ SubprocVecEnv (one env per subprocess). DummyVecEnv would crash for N_ENVS > 1.
 """
 import argparse
 import os
+from collections import deque
 
 from stable_baselines3 import PPO
 from stable_baselines3.common.callbacks import CheckpointCallback, BaseCallback
@@ -20,23 +21,38 @@ from .env import make_thunk
 
 
 class LifeForceStatsCallback(BaseCallback):
-    """Log Life-Force-specific metrics to TensorBoard: how far the agent gets
-    (max x), and how often it clears the stage."""
+    """Log Life-Force-specific metrics to TensorBoard:
 
-    def __init__(self):
+      reward/total, reward/score, reward/alive, reward/death, reward/clear
+        -> per-episode reward broken into its components (rolling mean)
+      lifeforce/stage_clears, lifeforce/clear_rate
+        -> level-clear progress
+    """
+
+    def __init__(self, window=100):
         super().__init__()
         self._clears = 0
         self._episodes = 0
+        self._comp = deque(maxlen=window)  # recent per-episode component dicts
 
     def _on_step(self) -> bool:
         for info in self.locals.get("infos", []):
             if info.get("stage_cleared"):
                 self._clears += 1
-            if "episode" in info:          # set by VecMonitor at episode end
+            rc = info.get("reward_components")
+            if rc is not None:             # set by LifeForceWrapper at episode end
                 self._episodes += 1
+                self._comp.append(rc)
+
         self.logger.record("lifeforce/stage_clears", self._clears)
         if self._episodes:
             self.logger.record("lifeforce/clear_rate", self._clears / self._episodes)
+        if self._comp:
+            n = len(self._comp)
+            for k in ("score", "alive", "death", "clear"):
+                self.logger.record(f"reward/{k}", sum(c[k] for c in self._comp) / n)
+            self.logger.record("reward/total",
+                               sum(sum(c.values()) for c in self._comp) / n)
         return True
 
 

@@ -21,7 +21,6 @@ from gymnasium.wrappers import (
     GrayscaleObservation,
     MaxAndSkipObservation,
     ResizeObservation,
-    TimeLimit,
 )
 import stable_retro as retro
 
@@ -69,17 +68,27 @@ class LifeForceWrapper(gym.Wrapper):
         self._start_stage = int(ram[C.ADDR_STAGE_NUM])
         self._start_vertical = int(ram[C.ADDR_STAGE_VERTICAL])
         self._cleared = False
+        self._steps = 0
+        # running per-episode reward breakdown
+        self._ep = {"score": 0.0, "alive": 0.0, "death": 0.0, "clear": 0.0}
         return obs, self._augment(info, ram)
 
     def step(self, action):
+        # `reward` from the inner env is the base score reward (scenario.json,
+        # summed over the frame-skip). We split the total into named components.
         obs, reward, terminated, truncated, info = self.env.step(action)
         ram = self._ram()
         lives = int(ram[C.ADDR_LIVES])
+        self._steps += 1
+
+        r_score = float(reward)
+        r_alive = C.REWARD_ALIVE
+        r_death = 0.0
+        r_clear = 0.0
 
         # 1) stay alive: per-step bonus, death penalty, end episode on death.
-        reward += C.REWARD_ALIVE
         if lives < self._start_lives:
-            reward -= C.REWARD_DEATH
+            r_death = -C.REWARD_DEATH
             info["life_lost"] = True
             if C.END_ON_LIFE_LOSS:
                 terminated = True
@@ -91,12 +100,24 @@ class LifeForceWrapper(gym.Wrapper):
         )
         if stage_changed and not self._cleared:
             self._cleared = True
-            reward += C.REWARD_CLEAR
+            r_clear = C.REWARD_CLEAR
             info["stage_cleared"] = True
             self._capture_transition(ram)
             terminated = True  # Level 1 done; we start from Level 1 only for now
 
-        return obs, reward, terminated, truncated, self._augment(info, ram)
+        # time limit (handled here so truncated episodes still report components)
+        if self._steps >= C.MAX_EPISODE_STEPS:
+            truncated = True
+
+        total = r_score + r_alive + r_death + r_clear
+        self._ep["score"] += r_score
+        self._ep["alive"] += r_alive
+        self._ep["death"] += r_death
+        self._ep["clear"] += r_clear
+        if terminated or truncated:
+            info["reward_components"] = dict(self._ep)
+
+        return obs, total, terminated, truncated, self._augment(info, ram)
 
     def _augment(self, info, ram):
         info = dict(info)
@@ -121,17 +142,50 @@ class LifeForceWrapper(gym.Wrapper):
                   f"vertical {self._start_vertical}->{int(ram[C.ADDR_STAGE_VERTICAL])})")
 
 
-def make_env(render_mode=None, preprocess=True):
-    """Build one fully-wrapped Life Force env (a thunk-friendly constructor)."""
+class FrameAudioRecorder(gym.Wrapper):
+    """Capture every emulator frame's video + audio for making demo videos with
+    sound. Placed INSIDE the frame-skip so no frames/audio are dropped (the agent
+    still decides once per skip; we just record all the in-between frames)."""
+
+    def __init__(self, env):
+        super().__init__(env)
+        self.frames = []
+        self.audio = []
+
+    def step(self, action):
+        out = self.env.step(action)
+        self.frames.append(self.env.unwrapped.render())          # native RGB frame
+        self.audio.append(self.env.unwrapped.em.get_audio().copy())  # (N,2) int16
+        return out
+
+
+def find_recorder(env):
+    """Walk the wrapper chain to find the FrameAudioRecorder (if any)."""
+    while env is not None:
+        if isinstance(env, FrameAudioRecorder):
+            return env
+        env = getattr(env, "env", None)
+    return None
+
+
+def make_env(render_mode=None, preprocess=True, record_av=False):
+    """Build one fully-wrapped Life Force env (a thunk-friendly constructor).
+
+    record_av=True inserts a FrameAudioRecorder inside the frame-skip so play.py
+    can write a video with sound.
+    """
     env = retro.make(C.GAME, state=C.STATE, render_mode=render_mode)
     env = Discretizer(env, C.ACTIONS)
+    if record_av:
+        env = FrameAudioRecorder(env)
     env = MaxAndSkipObservation(env, skip=C.FRAME_SKIP)
     env = LifeForceWrapper(env)
     if preprocess:
         env = GrayscaleObservation(env, keep_dim=False)
         env = ResizeObservation(env, (C.FRAME_SIZE, C.FRAME_SIZE))
         env = FrameStackObservation(env, stack_size=C.FRAME_STACK)
-    env = TimeLimit(env, max_episode_steps=C.MAX_EPISODE_STEPS)
+    # NOTE: the episode time limit is enforced inside LifeForceWrapper (so it can
+    # report reward components on truncation), not via a TimeLimit wrapper.
     return env
 
 
