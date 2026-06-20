@@ -28,6 +28,13 @@ own ROM, and extending the game integration (finding RAM addresses) yourself.
 
 ## Train
 
+Prerequisites: complete **Quickstart** (venv + `requirements.txt` +
+`setup_stable_retro.sh`) and **import your ROM**. Then activate the venv:
+
+```bash
+source .venv/bin/activate
+```
+
 ```bash
 python -m src.train                       # full run
 python -m src.train --smoke               # tiny end-to-end sanity check
