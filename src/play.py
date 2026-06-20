@@ -111,7 +111,7 @@ def main():
         ep_reward, steps = 0.0, 0
         while not done:
             action, _ = model.predict(obs, deterministic=args.deterministic)
-            obs, reward, term, trunc, info = env.step(int(action))
+            obs, reward, term, trunc, info = env.step(action)   # MultiDiscrete: [move, activate]
             if loop_renders:
                 frame = env.unwrapped.render()
                 if live:                       # live, no sound: draw every 4th frame

@@ -28,21 +28,30 @@ from . import config as C
 
 
 class Discretizer(gym.ActionWrapper):
-    """Map a small Discrete action set to the env's MultiBinary button vector."""
+    """Map a MultiDiscrete([n_moves, 2]) action to the NES button vector.
 
-    def __init__(self, env, button_combos):
+    Decision 1 = movement (fire B hardwired on); decision 2 = press the power-up
+    button (A) or not. So the agent can activate a power-up while moving.
+    """
+
+    def __init__(self, env, moves, activate_button):
         super().__init__(env)
         buttons = env.unwrapped.buttons  # e.g. ['B', None, 'SELECT', ...]
-        self._combos = []
-        for combo in button_combos:
+        self._moves = []
+        for combo in moves:
             arr = np.zeros(len(buttons), dtype=np.int8)
             for name in combo:
                 arr[buttons.index(name)] = 1
-            self._combos.append(arr)
-        self.action_space = gym.spaces.Discrete(len(self._combos))
+            self._moves.append(arr)
+        self._activate_idx = buttons.index(activate_button)
+        self.action_space = gym.spaces.MultiDiscrete([len(self._moves), 2])
 
     def action(self, act):
-        return self._combos[int(act)].copy()
+        move_idx, activate = int(act[0]), int(act[1])
+        arr = self._moves[move_idx].copy()
+        if activate:
+            arr[self._activate_idx] = 1
+        return arr
 
 
 class LifeForceWrapper(gym.Wrapper):
@@ -220,7 +229,7 @@ def make_env(render_mode=None, preprocess=True, record_av=False):
     can write a video with sound.
     """
     env = retro.make(C.GAME, state=C.STATE, render_mode=render_mode)
-    env = Discretizer(env, C.ACTIONS)
+    env = Discretizer(env, C.MOVES, C.ACTIVATE_BUTTON)
     if record_av:
         env = FrameAudioRecorder(env)
     env = MaxAndSkipObservation(env, skip=C.FRAME_SKIP)

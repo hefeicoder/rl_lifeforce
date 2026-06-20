@@ -28,13 +28,16 @@ ADDR_WEAPON = 0x76         # 0=Normal, 1=Ripple, 2=Laser
 ADDR_CTRL = 0x70           # player control state (3=active, 4/5=dying, 1/2=flying in)
 
 # --- Action set --------------------------------------------------------------
-# Reduced discrete action set for a shmup. In Life Force firing has no cost, so
-# shooting is weakly dominant (never worse than not shooting) -> we HARDWIRE fire
-# (B) into every action and let the agent choose only movement. This removes a
-# degree of freedom that should never be used, speeding learning.
+# Action space: MultiDiscrete([len(MOVES), 2]) — two INDEPENDENT decisions:
+#   head 1: movement (fire B is hardwired on, since shooting is weakly dominant)
+#   head 2: press the power-up button (A) or not
+# This lets the agent activate a power-up WHILE moving (faithful to the game and
+# removes the survival-vs-activate conflict). Factoring the two decisions is more
+# sample-efficient than a flat Discrete(18): the "when to activate" policy is
+# learned once and generalizes across all movements.
 # NES buttons available: B, SELECT, START, UP, DOWN, LEFT, RIGHT, A.
-ACTIONS = [
-    ["B"],                    # 0 fire, hold position
+MOVES = [
+    ["B"],                    # 0 hold position (fire)
     ["UP", "B"],             # 1
     ["DOWN", "B"],           # 2
     ["LEFT", "B"],           # 3
@@ -43,8 +46,8 @@ ACTIONS = [
     ["UP", "RIGHT", "B"],    # 6
     ["DOWN", "LEFT", "B"],   # 7
     ["DOWN", "RIGHT", "B"],  # 8
-    ["A", "B"],               # 9 activate power-up (gauge) while firing
 ]
+ACTIVATE_BUTTON = "A"        # pressed when the activate head outputs 1
 
 # --- Reward shaping ----------------------------------------------------------
 # Base reward (score-delta x10) comes from the bundled scenario.json. These add

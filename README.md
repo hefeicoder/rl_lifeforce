@@ -93,8 +93,11 @@ help. Benchmarked on an M-series Mac, `--device mps` was ~25% *slower*.
 the episode on death (dying forfeits all remaining reward) rather than a large
 idle bonus — so the agent stays alive *in order to* **score** (the main positive
 signal, which keeps play active and fun to watch). A **clear bonus** rewards
-reaching Stage 2 (and auto-captures the Stage-2 RAM). The action set **hardwires
-fire** — shooting is always optimal here, so the agent picks only movement.
+reaching Stage 2 (and auto-captures the Stage-2 RAM). **Action space** is
+`MultiDiscrete([9, 2])` — two independent decisions: **movement** (9 options,
+fire `B` hardwired on since shooting is always optimal) and **whether to activate
+a power-up** (`A`). Factoring them lets the agent activate *while* moving and is
+more sample-efficient than a flat 18-action set.
 
 **Power-ups** (the Gradius-style meter) are shaped too: small bonuses for *state
 increases* — eating a capsule, then gaining a Missile / Option / Force Field /
