@@ -60,10 +60,11 @@ def build_vec_env(n_envs):
     return VecMonitor(SubprocVecEnv([make_thunk(seed=i) for i in range(n_envs)]))
 
 
-def linear_schedule(initial):
-    """LR schedule: progress_remaining goes 1 -> 0, so this decays initial -> 0."""
+def linear_schedule(initial, floor=0.0):
+    """LR schedule: progress_remaining goes 1 -> 0, decaying `initial` down to
+    `floor * initial` (floor=0.0 anneals all the way to zero)."""
     def f(progress_remaining):
-        return progress_remaining * initial
+        return (floor + (1.0 - floor) * progress_remaining) * initial
     return f
 
 
@@ -89,7 +90,7 @@ def main():
         print(f"Resuming from {args.resume}")
         model = PPO.load(args.resume, env=venv, tensorboard_log=C.TB_LOG_DIR)
     else:
-        lr = linear_schedule(C.LEARNING_RATE) if C.LR_ANNEAL else C.LEARNING_RATE
+        lr = linear_schedule(C.LEARNING_RATE, C.LR_FLOOR) if C.LR_ANNEAL else C.LEARNING_RATE
         model = PPO(
             "CnnPolicy", venv,
             n_steps=C.N_STEPS, n_epochs=C.N_EPOCHS, batch_size=C.BATCH_SIZE,

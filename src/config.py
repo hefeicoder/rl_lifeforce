@@ -89,7 +89,10 @@ GAE_LAMBDA = 0.95
 CLIP_RANGE = 0.1
 ENT_COEF = 0.01
 TARGET_KL = 0.02             # early-stop an update if policy moves too far (anti-collapse)
-LR_ANNEAL = True             # linearly decay learning rate to 0 over training (stability)
+LR_ANNEAL = True             # linearly decay learning rate over training (stability)
+LR_FLOOR = 0.1               # anneal down to this fraction of initial LR (0.0 = all the way to 0).
+                             # A small floor keeps the policy learning at the end of a run, which
+                             # suits exploratory/unknown-horizon training; use 0.0 for a final run.
 TOTAL_TIMESTEPS = 5_000_000
 CHECKPOINT_EVERY = 100_000   # save a checkpoint every N total timesteps (--save-freq)
 
