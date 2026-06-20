@@ -18,12 +18,27 @@ own ROM, and extending the game integration (finding RAM addresses) yourself.
 ## Status
 
 - ✅ **Feasibility proven.** stable-retro builds natively on Apple Silicon and
-  runs Life Force Level 1 end-to-end (env steps, score-based reward fires,
-  Level-1 save state loads). See [`docs/macos_arm64_build.md`](docs/macos_arm64_build.md).
-- ⬜ Integration extension — find the level-progress RAM address to detect
-  "Level 1 cleared" (the current integration only tracks `score` + `lives`).
-- ⬜ Training pipeline (env factory, PPO, eval, video).
+  runs Life Force Level 1 end-to-end. See [`docs/macos_arm64_build.md`](docs/macos_arm64_build.md).
+- ✅ **RAM map** — confirmed lives/score/X/Y + auto-scroll clock; stage-clear
+  detector narrowed to two suspects (`0x23`/`0x40`). See [`docs/ram_map.md`](docs/ram_map.md).
+- ✅ **Training pipeline** — env factory (reduced action set + reward shaping +
+  auto Stage-2 capture), PPO trainer, and video player; verified end-to-end.
+- ⬜ Confirm the stage-clear detector from the first captured Stage-2 transition.
 - ⬜ Train to clear Level 1.
+
+## Train
+
+```bash
+python -m src.train                       # full run
+python -m src.train --smoke               # tiny end-to-end sanity check
+python -m src.train --device mps          # Apple-GPU acceleration
+python -m src.play --model checkpoints/lifeforce_ppo_final.zip --episodes 3
+```
+
+Reward reflects the objective (see `src/config.py`): **stay alive** (per-step
+bonus + death penalty + one life per episode), **score** (base reward), and
+**pass the level** (bonus on the Stage-2 transition, which also auto-captures
+the Stage-2 RAM to finish confirming the clear detector).
 
 ## Quickstart
 
