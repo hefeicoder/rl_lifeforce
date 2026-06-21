@@ -160,9 +160,11 @@ power-up** (`A`) or not. Factoring lets the agent activate *while* moving and is
 more sample-efficient than a flat 18-action set.
 
 **Power-ups** (the Gradius meter): bonuses for acquiring upgrades, prioritized
-**Missile > Option > Force Field**, with **Speed penalized** (too many speed-ups
-make the ship overshoot in tight terrain). Rewarding *state increases* means
-upgrade caps self-enforce. Shows as `reward/powerup`.
+**Missile > Option > Force Field**, with **Speed thresholded** — a little (≤
+`MAX_SPEED`) helps dodging and earns a small bonus, but each level *beyond* it is
+heavily penalized (too much speed makes the ship overshoot in tight terrain).
+Rewarding *state increases* means upgrade caps self-enforce. Shows as
+`reward/powerup`.
 
 ## Licensing
 

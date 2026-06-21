@@ -21,13 +21,15 @@ past it (confirmed by watching a replay).
 **Levers to get past the gauntlet, in priority order (cheapest first):**
 1. **Loadout fix (in progress).** The agent poured every capsule into **Speed**
    (`speed=7`) → the ship overshoots and can't make fine corrections in the gap.
-   We now **penalize speed** and prioritize **Missile > Option > Force Field**
-   (`REWARD_SPEED=-1.0` in config). A *slower, controllable* ship may thread the
-   gap. **Caveat:** the speed habit is deeply ingrained (3M+ steps); unlearning
-   via `--resume` is very slow (the −1 penalty is the only real signal — the
-   downstream death is ~600 steps away and γ=0.99 discounts it to nothing). At
-   184k steps of resume, `reward/powerup` was still negative (~−3.9 = still
-   grabbing speed). **Leaning toward a fresh train** so there's no habit to fight.
+   Prioritize **Missile > Option > Force Field**; for speed, use a **threshold**:
+   ≤`MAX_SPEED` (2) earns a small bonus, each level beyond is **heavily penalized**
+   (`REWARD_OVERSPEED=-5.0`). *First attempt was a flat `-1.0` penalty — it FAILED:*
+   the agent kept grabbing speed because speed is genuinely net-positive early
+   (better dodging → more score, hundreds of reward), and the gauntlet-overshoot
+   cost is ~600 steps away → γ-discounted to nothing. `reward/powerup` went *more*
+   negative over training (still grabbing speed). The threshold penalty is
+   **immediate** (on the speed gain), so the agent can actually learn the cap.
+   Best run via a fresh train (no speed habit to fight).
 2. **Earlier curriculum capture.** The captured wall state was ~30 steps before
    death with the ship already cornered at `x=14` (far-left) — likely an
    *unwinnable* position. Re-capture with a bigger lead-in (`--before-death 120`)

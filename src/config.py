@@ -70,15 +70,20 @@ MAX_EPISODE_STEPS = 2000    # agent-step time limit (post frame-skip)
 # self-enforcing — a maxed upgrade can't increase, so it earns nothing and the
 # agent learns not to waste capsules on it). Teaches: eat capsules, accumulate,
 # spend well. Priority for scoring: Missile > Option > Force Field.
-# Loadout priority: Missile > Option > Force Field, and SPEED IS PENALIZED.
-# Too many speed-ups make the ship overshoot and crash (esp. threading tight
-# terrain), so we discourage grabbing it — the Gradius meter lets the agent hold
-# past the speed slot (1) and spend on the better upgrades instead.
+# Loadout priority: Missile > Option > Force Field. SPEED is THRESHOLDED — a
+# little speed helps (dodging), but too much makes the ship overshoot and crash
+# in tight terrain. So speed up to MAX_SPEED earns a small bonus; each level
+# BEYOND it is heavily penalized. The penalty is immediate (on the speed gain),
+# so the agent can actually learn the cap — unlike a far-off gauntlet death,
+# which γ-discounting hides. A flat speed penalty failed: speed is net-positive
+# early, so the agent kept grabbing it despite a small penalty.
 REWARD_CAPSULE = 0.5        # ate a capsule (cursor advanced) — currency for upgrades
 REWARD_MISSILE = 4.0        # acquired Missile (top priority)
 REWARD_OPTION = 3.0         # acquired an Option (max 2)
 REWARD_FORCEFIELD = 2.0     # gained Force Field / refilled shield
-REWARD_SPEED = -1.0         # speed-up: PENALIZED (overshooting wrecks precise control)
+MAX_SPEED = 2              # speed levels up to here are "good"; beyond = over-speeding
+REWARD_SPEED = 0.5         # bonus per speed level gained up to MAX_SPEED
+REWARD_OVERSPEED = -5.0    # penalty per speed level gained ABOVE MAX_SPEED (much heavier)
 
 # --- Preprocessing -----------------------------------------------------------
 FRAME_SKIP = 4

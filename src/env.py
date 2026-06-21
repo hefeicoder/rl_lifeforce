@@ -123,7 +123,10 @@ class LifeForceWrapper(gym.Wrapper):
         if cur["shield"] > prev["shield"]:
             r += C.REWARD_FORCEFIELD
         if cur["speed"] > prev["speed"]:
-            r += C.REWARD_SPEED * (cur["speed"] - prev["speed"])
+            # threshold: reward speed gained up to MAX_SPEED, heavily penalize beyond
+            good = max(0, min(cur["speed"], C.MAX_SPEED) - min(prev["speed"], C.MAX_SPEED))
+            over = max(0, cur["speed"] - max(prev["speed"], C.MAX_SPEED))
+            r += C.REWARD_SPEED * good + C.REWARD_OVERSPEED * over
         self._prev_pu = cur
         return r
 
