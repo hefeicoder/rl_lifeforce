@@ -144,6 +144,9 @@ def main():
                    help="rollout length per env (default config.N_STEPS); fresh runs only")
     p.add_argument("--n-epochs", type=int, default=None, dest="n_epochs",
                    help="PPO passes per rollout (default config.N_EPOCHS)")
+    p.add_argument("--gamma", type=float, default=None,
+                   help="discount factor (default config.GAMMA); raise (e.g. 0.997) to "
+                        "propagate delayed payoffs further back (e.g. a fork's reward)")
     args = p.parse_args()
 
     if args.smoke:
@@ -167,11 +170,13 @@ def main():
     batch_size = args.batch_size or C.BATCH_SIZE
     n_steps = args.n_steps or C.N_STEPS
     n_epochs = args.n_epochs or C.N_EPOCHS
+    gamma = args.gamma or C.GAMMA
     if args.resume:
         print(f"Resuming from {args.resume}")
         model = PPO.load(args.resume, env=venv, tensorboard_log=C.TB_LOG_DIR, device=device)
         model.ent_coef = ent_coef          # allow raising exploration on resume
         model.batch_size, model.n_epochs = batch_size, n_epochs  # safe to change on resume
+        model.gamma = gamma                # used in GAE during rollout; takes effect on resume
         if args.n_steps and args.n_steps != model.n_steps:
             print("warning: --n-steps only takes effect on a fresh run (it sizes the "
                   "rollout buffer at construction); ignoring on resume")
@@ -180,7 +185,7 @@ def main():
         model = PPO(
             "CnnPolicy", venv,
             n_steps=n_steps, n_epochs=n_epochs, batch_size=batch_size,
-            learning_rate=lr, gamma=C.GAMMA, gae_lambda=C.GAE_LAMBDA,
+            learning_rate=lr, gamma=gamma, gae_lambda=C.GAE_LAMBDA,
             clip_range=C.CLIP_RANGE, ent_coef=ent_coef, target_kl=C.TARGET_KL,
             tensorboard_log=C.TB_LOG_DIR, verbose=1, device=device,
         )
