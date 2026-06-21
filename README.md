@@ -89,7 +89,8 @@ sleep doesn't pause training. `<run>` below = a folder under `checkpoints/`.
 python -m src.train --run-name my-run     # fresh run -> checkpoints/my-run/
 python -m src.train --smoke               # ~30s end-to-end sanity check first
 ```
-Runs `N_ENVS=8` emulators in parallel. Each run gets its own
+Runs `N_ENVS=16` emulators in parallel on the GPU (MPS) by default — no flags
+needed (`--device auto` picks MPS on Apple Silicon). Each run gets its own
 `checkpoints/<run-name>/` (a timestamp if `--run-name` is omitted) and a matching
 TensorBoard run, so runs never overwrite each other.
 
