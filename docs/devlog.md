@@ -139,6 +139,16 @@ drilling still won't move it, escalate to perception (`FRAME_SIZE` 128).
   "cleared" RAM signal (`0x23` stage-num / `0x40` vertical-flag) is still a
   hypothesis. The env auto-captures the first Stage-2 transition to `ram_dumps/`
   for confirmation — but it hasn't fired (never gotten past the wall).
+- **Resumability gotcha (fixed).** `vecnormalize.pkl` (reward-norm running stats)
+  used to be saved *only* at a run's natural end (`model.learn()` finishing) — so a
+  Ctrl-C'd or still-running job left mid-run checkpoints with **no** stats, and
+  resuming them silently rebuilt fresh `VecNormalize` (policy transfers, but norm
+  resets → a transient critic wobble). Fixed: `CheckpointCallback(save_vecnormalize=
+  True)` now writes `lifeforce_ppo_vecnormalize_<N>_steps.pkl` beside every
+  checkpoint, and `train.vecnorm_for()` resolves it on `--resume` (falling back to
+  the canonical `vecnormalize.pkl`). Checkpoints from *before* this fix (e.g. the
+  `lv1-speedcap` run) have no stats — resuming them rebuilds fresh, which is
+  acceptable for a curriculum drill since that shifts the reward distribution anyway.
 - **Phase 2: auto-curriculum.** Designed, not built. A callback that detects
   "stuck" (no new `best_score` in ~N steps), auto-captures the current death point
   to `states/` (envs pick it up live via re-glob), and drills it — automating the

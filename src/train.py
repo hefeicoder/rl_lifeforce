@@ -11,6 +11,7 @@ SubprocVecEnv (one env per subprocess). DummyVecEnv would crash for N_ENVS > 1.
 import argparse
 import datetime
 import os
+import re
 from collections import deque
 
 from stable_baselines3 import PPO
@@ -20,7 +21,25 @@ from stable_baselines3.common.vec_env import SubprocVecEnv, VecMonitor, VecNorma
 from . import config as C
 from .env import make_thunk
 
-VECNORM_NAME = "vecnormalize.pkl"   # saved inside each run's folder
+VECNORM_NAME = "vecnormalize.pkl"   # canonical name (final save)
+
+
+def vecnorm_for(ckpt):
+    """Find the reward-norm stats saved beside a checkpoint, for --resume.
+
+    CheckpointCallback(save_vecnormalize=True) writes per-checkpoint stats named
+    '<prefix>_vecnormalize_<N>_steps.pkl' next to each '<prefix>_<N>_steps.zip', so
+    any mid-run checkpoint is independently resumable. The final save writes the
+    canonical 'vecnormalize.pkl'. Prefer the exact per-checkpoint file, else fall
+    back to the canonical name (also covers '..._final.zip').
+    """
+    d = os.path.dirname(ckpt) or "."
+    m = re.match(r"(.+?)_(\d+)_steps\.zip$", os.path.basename(ckpt))
+    if m:
+        cand = os.path.join(d, f"{m.group(1)}_vecnormalize_{m.group(2)}_steps.pkl")
+        if os.path.exists(cand):
+            return cand
+    return os.path.join(d, VECNORM_NAME)
 
 
 class LifeForceStatsCallback(BaseCallback):
@@ -116,8 +135,8 @@ def main():
     os.makedirs(run_dir, exist_ok=True)
     print(f"Run: {run_name}  ->  checkpoints in {run_dir}/ , TensorBoard run '{run_name}'")
 
-    # On resume, load that run's normalization stats from beside its checkpoint.
-    load_norm = os.path.join(os.path.dirname(args.resume) or ".", VECNORM_NAME) if args.resume else None
+    # On resume, load that checkpoint's normalization stats from beside it.
+    load_norm = vecnorm_for(args.resume) if args.resume else None
     venv = build_vec_env(args.n_envs, load_norm=load_norm)
 
     ent_coef = args.ent_coef if args.ent_coef is not None else C.ENT_COEF
@@ -137,9 +156,12 @@ def main():
 
     # CheckpointCallback's save_freq counts per-env steps, so divide the desired
     # total-timestep interval by the number of envs.
+    # save_vecnormalize=True writes the reward-norm stats next to each checkpoint,
+    # so any mid-run checkpoint is independently resumable (vecnorm_for finds them).
     ckpt = CheckpointCallback(
         save_freq=max(args.save_freq // args.n_envs, 1),
         save_path=run_dir, name_prefix="lifeforce_ppo",
+        save_vecnormalize=True,
     )
     model.learn(total_timesteps=args.timesteps,
                 callback=[ckpt, LifeForceStatsCallback()],
