@@ -127,7 +127,9 @@ LR_ANNEAL = True             # linearly decay learning rate over training (stabi
 LR_FLOOR = 0.1               # anneal down to this fraction of initial LR (0.0 = all the way to 0).
                              # A small floor keeps the policy learning at the end of a run, which
                              # suits exploratory/unknown-horizon training; use 0.0 for a final run.
-TOTAL_TIMESTEPS = 5_000_000
+TOTAL_TIMESTEPS = 2_000_000  # a CEILING, not a commitment: runs plateau early, so watch
+                             # best_score and Ctrl-C when flat (latest checkpoint is resumable).
+                             # ~35 min at ~950 fps; use --timesteps 5M for a deliberate long run.
 CHECKPOINT_EVERY = 100_000   # save a checkpoint every N total timesteps (--save-freq)
 
 # --- Curriculum (save-state practice for hard sections) ----------------------
