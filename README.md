@@ -4,6 +4,8 @@ Reinforcement learning on **Life Force** (the NES release of Konami's
 *Salamander*), using [stable-retro](https://github.com/Farama-Foundation/stable-retro)
 + [Stable-Baselines3](https://github.com/DLR-RM/stable-baselines3) PPO.
 
+![Life Force (NES), Stage 1 — the Vic Viper ship in the cellular cavern](images/lifeforce.png)
+
 **Goal:** train an agent to clear **Level 1**, with the project structured so
 later levels are a config change rather than a rewrite.
 
