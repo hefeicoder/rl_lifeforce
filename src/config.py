@@ -87,6 +87,15 @@ MAX_SPEED = 2              # speed levels up to here are "good"; beyond = over-s
 REWARD_SPEED = 0.5         # bonus per speed level gained up to MAX_SPEED
 REWARD_OVERSPEED = -5.0    # penalty per speed level gained ABOVE MAX_SPEED (much heavier)
 
+# Forward-position reward (experimental, for the fork). Small per-step bonus scaled
+# by how far FORWARD (high x) the ship is. Rationale: the fork's dead-end channel
+# corners the ship to the far back (x~16) before death, so this pays LESS there — a
+# dense, EARLY "bad" signal (vs the late, discounted death) — and rewards the
+# front-rush survival line. NOTE: x_pos is SCREEN position, not level distance (the
+# level auto-scrolls). CAUTION: conflicts with the gauntlet-#1 lesson (front edge =
+# death there) — watch best_score for regression below 380. 0.0 disables.
+REWARD_XPOS = 0.02
+
 # --- Positional cap (action mask, like the speed cap) ------------------------
 # Hugging the leading (front/right) edge leaves no time to react to terrain and
 # enemies that scroll in from the front — which is exactly how the agent dies at

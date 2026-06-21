@@ -161,7 +161,8 @@ class LifeForceWrapper(gym.Wrapper):
         self._steps = 0
         self._prev_pu = self._read_powerups(ram)
         # running per-episode reward breakdown
-        self._ep = {"score": 0.0, "alive": 0.0, "death": 0.0, "clear": 0.0, "powerup": 0.0}
+        self._ep = {"score": 0.0, "alive": 0.0, "death": 0.0, "clear": 0.0,
+                    "powerup": 0.0, "xpos": 0.0}
         return obs, self._augment(info, ram)
 
     def step(self, action):
@@ -203,12 +204,18 @@ class LifeForceWrapper(gym.Wrapper):
         # 2b) power-ups: eat capsules, accumulate, spend (Missile/Option/Force Field)
         r_powerup = self._powerup_reward(ram)
 
-        total = r_score + r_alive + r_death + r_clear + r_powerup
+        # 2c) forward-position: small dense bonus for being forward (see config); the
+        # dead-end corners the ship to the back (low x), so this pays less there.
+        x_frac = (int(ram[C.ADDR_X_POS]) - C.X_POS_MIN) / (C.X_POS_MAX - C.X_POS_MIN)
+        r_xpos = C.REWARD_XPOS * max(0.0, min(1.0, x_frac))
+
+        total = r_score + r_alive + r_death + r_clear + r_powerup + r_xpos
         self._ep["score"] += r_score
         self._ep["alive"] += r_alive
         self._ep["death"] += r_death
         self._ep["clear"] += r_clear
         self._ep["powerup"] += r_powerup
+        self._ep["xpos"] += r_xpos
         if terminated or truncated:
             info["reward_components"] = dict(self._ep)
 
