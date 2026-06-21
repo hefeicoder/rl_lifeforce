@@ -17,14 +17,18 @@ own ROM, and extending the game integration (finding RAM addresses) yourself.
 
 ## Status
 
-- ✅ **Feasibility proven.** stable-retro builds natively on Apple Silicon and
-  runs Life Force Level 1 end-to-end. See [`docs/macos_arm64_build.md`](docs/macos_arm64_build.md).
-- ✅ **RAM map** — confirmed lives/score/X/Y + auto-scroll clock; stage-clear
-  detector narrowed to two suspects (`0x23`/`0x40`). See [`docs/ram_map.md`](docs/ram_map.md).
-- ✅ **Training pipeline** — env factory (reduced action set + reward shaping +
-  auto Stage-2 capture), PPO trainer, and video player; verified end-to-end.
-- ⬜ Confirm the stage-clear detector from the first captured Stage-2 transition.
-- ⬜ Train to clear Level 1.
+- ✅ **Feasibility** — stable-retro builds natively on Apple Silicon; runs Life
+  Force Level 1 end-to-end. See [`docs/macos_arm64_build.md`](docs/macos_arm64_build.md).
+- ✅ **RAM map** — lives/score/position, auto-scroll clock, and the full power-up
+  state (meter, speed, options, missile, shield). See [`docs/ram_map.md`](docs/ram_map.md).
+- ✅ **Training pipeline** — env factory (MultiDiscrete actions; survival + score
+  + power-up reward shaping), PPO with stability fixes (`target_kl`, LR annealing,
+  reward normalization), TensorBoard metrics, and a live/video player.
+- ✅ **Save-state curriculum** — capture a hard spot, auto-mix it into training.
+- 🔜 **Clearing Level 1** — the agent reliably reaches a mid-stage terrain
+  "gauntlet" but doesn't yet thread it; iterating on curriculum, loadout
+  (no speed), and exploration. (The bundled 10M-step benchmark never cleanly
+  cleared either — this is hard.)
 
 ## Quickstart
 
@@ -61,86 +65,93 @@ stable-retro identifies the ROM by the SHA-1 of its *headerless* data
 python -c "import stable_retro as retro; env = retro.make('LifeForce-Nes-v0', state='1Player.Level1'); print(env.reset()[0].shape); env.close()"
 ```
 
-## Train
+## Usage
 
-With the venv active and your ROM imported:
+All commands assume the venv is active (`source .venv/bin/activate`) and your ROM
+is imported. For long/overnight runs, prefix with **`caffeinate -is`** so macOS
+sleep doesn't pause training. `<run>` below = a folder under `checkpoints/`.
 
+### 1. Train from scratch
 ```bash
-python -m src.train            # full run on CPU; 8 emulators in parallel
-python -m src.train --smoke    # tiny end-to-end sanity check first
+python -m src.train --run-name my-run     # fresh run -> checkpoints/my-run/
+python -m src.train --smoke               # ~30s end-to-end sanity check first
 ```
+Runs `N_ENVS=8` emulators in parallel. Each run gets its own
+`checkpoints/<run-name>/` (a timestamp if `--run-name` is omitted) and a matching
+TensorBoard run, so runs never overwrite each other.
 
-Training runs **`N_ENVS = 8`** NES emulators in parallel (`SubprocVecEnv`, one
-per process — stable-retro allows only one emulator per process) to collect
-decorrelated experience. All hyperparameters, reward weights, and the action set
-live in [`src/config.py`](src/config.py).
-
-Each run writes to its own folder **`checkpoints/<run-name>/`** (a timestamp by
-default, or `--run-name <name>`), and the TensorBoard run uses the same name — so
-resumed runs never overwrite each other's checkpoints and curves/checkpoints line
-up. Watch curriculum/wall progress via **`lifeforce/best_score`** (absolute score;
-crossing the wall plateau = a breakthrough).
-
-Watch live in TensorBoard:
-
+### 2. Resume from a checkpoint
 ```bash
-tensorboard --logdir tb_logs   # then open http://localhost:6006
+python -m src.train --resume checkpoints/<run>/lifeforce_ppo_<N>_steps.zip --run-name my-run-v2
 ```
+Loads the policy **and** that run's `vecnormalize.pkl`. The continuation gets a
+new folder (SB3 resets the step counter on resume — that's why per-run folders
+matter). Reward/PPO changes in `config.py` apply on resume; action-space/
+`FRAME_SIZE` changes do **not** (those need a fresh train).
 
-Useful charts: `reward/total` and its breakdown `reward/{score,alive,death,clear}`,
-plus `lifeforce/clear_rate`. Healthy learning shows `reward/score` rising
-*together with* `reward/alive` (active, scoring play — not camping).
+### 3. Curriculum — drill a hard spot, then train
+```bash
+# capture where the agent gets stuck (its death point; --before-death = lead-in):
+python -m tools.capture_state --model checkpoints/<run>/lifeforce_ppo_<N>_steps.zip \
+  --name l1_gauntlet --before-death 120
+# resume — every *.state in states/ auto-mixes into ~CURRICULUM_MIX of episodes:
+python -m src.train --resume checkpoints/<run>/lifeforce_ppo_<N>_steps.zip --run-name l1-drill
+```
+Drop a `.state` in `states/` to add a drill point, delete it to remove one; an
+**empty `states/` = curriculum off** (100% level start). The real level start is
+always kept, so the agent still learns the whole stage. (Save states embed
+ROM-derived data → `states/` is gitignored; regenerate with the capture tool.)
 
-**Device:** train on **CPU** (the default). This workload is *env-bound* —
-stepping the NES emulators dominates, and NatureCNN is too small for a GPU to
-help. Benchmarked on an M-series Mac, `--device mps` was ~25% *slower*.
+### 4. Play / watch
+```bash
+# from the level start — default is a live 3x window with sound:
+python -m src.play --model checkpoints/<run>/lifeforce_ppo_final.zip
+# from a saved state (e.g. a captured wall):
+python -m src.play --model checkpoints/<run>/lifeforce_ppo_final.zip --from-state states/l1_gauntlet.state
+```
+Useful flags: `--deterministic` (greedy/argmax — shows the agent's "best intended"
+play; default is stochastic sampling), `--no-audio`, `--scale N` (window size),
+`--render video` (record `videos/play.mp4` instead of a live window; keeps sound).
+Stop training first for smooth live audio.
 
-**Reward design** (see `src/config.py`): **survival is #1**, enforced by ending
-the episode on death (dying forfeits all remaining reward) rather than a large
-idle bonus — so the agent stays alive *in order to* **score** (the main positive
-signal, which keeps play active and fun to watch). A **clear bonus** rewards
-reaching Stage 2 (and auto-captures the Stage-2 RAM). **Action space** is
-`MultiDiscrete([9, 2])` — two independent decisions: **movement** (9 options,
-fire `B` hardwired on since shooting is always optimal) and **whether to activate
-a power-up** (`A`). Factoring them lets the agent activate *while* moving and is
+### 5. Monitor (TensorBoard)
+```bash
+tensorboard --logdir tb_logs    # http://localhost:6006
+```
+**The key chart is `lifeforce/best_score`** — the absolute score reached; it
+crossing a plateau = a real breakthrough. Also `lifeforce/clear_rate` and the
+`reward/*` breakdown. **Caveat:** with curriculum on, `reward/*` averages are
+*diluted* by wall-start episodes — judge progress by `lifeforce/best_score`, not
+the reward averages.
+
+### Tuning
+Most knobs live in [`src/config.py`](src/config.py): reward weights (`REWARD_*`),
+`CURRICULUM_MIX`, PPO hyperparameters, `FRAME_SIZE`. Handy CLI overrides:
+`--ent-coef` (raise it, e.g. `0.03`, for more exploration to break a plateau),
+`--save-freq`, `--timesteps`, `--device`.
+
+## How it works (design)
+
+**Training:** PPO (`CnnPolicy` / NatureCNN) on **8 parallel emulators**
+(`SubprocVecEnv` — stable-retro allows only one emulator per process) for
+decorrelated experience. **Train on CPU** — the workload is *env-bound* (emulator
+stepping dominates; NatureCNN is too small for a GPU to help). `--device mps`
+benchmarked ~25% *slower* on Apple Silicon.
+
+**Reward:** **survival is #1**, enforced by ending the episode on death (dying
+forfeits all remaining reward) rather than a large idle bonus — so the agent
+stays alive *in order to* **score** (the main positive signal). A **clear bonus**
+rewards reaching Stage 2 (and auto-captures the Stage-2 RAM).
+
+**Action space:** `MultiDiscrete([9, 2])` — two independent choices: **movement**
+(9 options, fire `B` always on since shooting is never worse) and **activate a
+power-up** (`A`) or not. Factoring lets the agent activate *while* moving and is
 more sample-efficient than a flat 18-action set.
 
-**Power-ups** (the Gradius-style meter) are shaped too: bonuses for acquiring
-upgrades, prioritized **Missile > Option > Force Field**, while **Speed is
-penalized** (too many speed-ups make the ship overshoot and crash in tight
-terrain). Rewarding *state increases* means upgrade caps self-enforce (a maxed
-upgrade can't rise → no wasted-capsule incentive). Addresses and weights are in
-`src/config.py`; the breakdown shows as `reward/powerup` in TensorBoard.
-
-## Getting past hard sections (save-state curriculum)
-
-When the agent plateaus at a specific spot (a terrain wall, a boss), drill it:
-
-```bash
-# 1. Capture the wall — the agent's own death point defines it:
-python -m tools.capture_state --model checkpoints/<run>/lifeforce_ppo_<N>_steps.zip --name l1_gauntlet
-# 2. Resume — training auto-mixes states/l1_gauntlet.state into ~50% of episodes:
-python -m src.train --resume checkpoints/<run>/lifeforce_ppo_<N>_steps.zip
-```
-
-Any `*.state` file dropped in `states/` becomes a possible start state
-(re-scanned every reset), so adding a new hard spot is just **capture + resume —
-no code edits**. The level's real start is always kept too, so the agent still
-learns the whole stage and we can measure true clears. Tune the drill ratio with
-`CURRICULUM_MIX` in `config.py`. (Save states embed ROM-derived data, so `states/`
-is gitignored — regenerate with the capture tool.)
-
-## Watch a trained agent
-
-The default is a **live 3× window with game sound** (stop training first so the
-audio doesn't stutter):
-
-```bash
-python -m src.play --model checkpoints/<run>/lifeforce_ppo_final.zip                # live window + sound
-python -m src.play --model checkpoints/<run>/lifeforce_ppo_final.zip --no-audio     # live, silent
-python -m src.play --model checkpoints/<run>/lifeforce_ppo_final.zip --render video # record an mp4 (with sound)
-python -m src.play --model checkpoints/<run>/lifeforce_ppo_final.zip --render video --no-audio  # silent mp4
-```
+**Power-ups** (the Gradius meter): bonuses for acquiring upgrades, prioritized
+**Missile > Option > Force Field**, with **Speed penalized** (too many speed-ups
+make the ship overshoot in tight terrain). Rewarding *state increases* means
+upgrade caps self-enforce. Shows as `reward/powerup`.
 
 ## The interesting part: build & integration notes
 
