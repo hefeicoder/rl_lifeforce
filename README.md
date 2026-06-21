@@ -105,11 +105,12 @@ fire `B` hardwired on since shooting is always optimal) and **whether to activat
 a power-up** (`A`). Factoring them lets the agent activate *while* moving and is
 more sample-efficient than a flat 18-action set.
 
-**Power-ups** (the Gradius-style meter) are shaped too: small bonuses for *state
-increases* — eating a capsule, then gaining a Missile / Option / Force Field /
-Speed. Rewarding increases means upgrade caps self-enforce (a maxed upgrade can't
-rise → earns nothing → no wasted-capsule incentive). Addresses and weights are
-in `src/config.py`; the breakdown shows as `reward/powerup` in TensorBoard.
+**Power-ups** (the Gradius-style meter) are shaped too: bonuses for acquiring
+upgrades, prioritized **Missile > Option > Force Field**, while **Speed is
+penalized** (too many speed-ups make the ship overshoot and crash in tight
+terrain). Rewarding *state increases* means upgrade caps self-enforce (a maxed
+upgrade can't rise → no wasted-capsule incentive). Addresses and weights are in
+`src/config.py`; the breakdown shows as `reward/powerup` in TensorBoard.
 
 ## Getting past hard sections (save-state curriculum)
 

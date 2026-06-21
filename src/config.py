@@ -70,11 +70,15 @@ MAX_EPISODE_STEPS = 2000    # agent-step time limit (post frame-skip)
 # self-enforcing — a maxed upgrade can't increase, so it earns nothing and the
 # agent learns not to waste capsules on it). Teaches: eat capsules, accumulate,
 # spend well. Priority for scoring: Missile > Option > Force Field.
-REWARD_CAPSULE = 0.5        # ate a capsule (power-bar cursor advanced)
-REWARD_MISSILE = 3.0        # acquired Missile
+# Loadout priority: Missile > Option > Force Field, and SPEED IS PENALIZED.
+# Too many speed-ups make the ship overshoot and crash (esp. threading tight
+# terrain), so we discourage grabbing it — the Gradius meter lets the agent hold
+# past the speed slot (1) and spend on the better upgrades instead.
+REWARD_CAPSULE = 0.5        # ate a capsule (cursor advanced) — currency for upgrades
+REWARD_MISSILE = 4.0        # acquired Missile (top priority)
 REWARD_OPTION = 3.0         # acquired an Option (max 2)
 REWARD_FORCEFIELD = 2.0     # gained Force Field / refilled shield
-REWARD_SPEED = 0.5          # speed-up (minor; aids dodging)
+REWARD_SPEED = -1.0         # speed-up: PENALIZED (overshooting wrecks precise control)
 
 # --- Preprocessing -----------------------------------------------------------
 FRAME_SKIP = 4
