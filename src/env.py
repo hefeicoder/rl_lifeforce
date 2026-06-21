@@ -99,7 +99,9 @@ class Discretizer(gym.ActionWrapper):
         # X_SAFE_FRONT, so it can't hug the leading edge (no reaction time to
         # terrain scrolling in — the gauntlet death). It can still retreat, hover,
         # and move vertically. A mask, not a penalty, for the same reason as the
-        # speed cap.
+        # speed cap. X_SAFE_FRONT=None disables the cap (full positional freedom).
+        if C.X_SAFE_FRONT is None:
+            return False
         return int(ram[C.ADDR_X_POS]) >= C.X_SAFE_FRONT
 
 

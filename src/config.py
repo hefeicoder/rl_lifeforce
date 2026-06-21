@@ -97,7 +97,13 @@ REWARD_OVERSPEED = -5.0    # penalty per speed level gained ABOVE MAX_SPEED (muc
 # x_pos ranges ~15 (far back/left) .. 232 (front/right edge).
 X_POS_MIN = 15
 X_POS_MAX = 232
-X_SAFE_FRONT = 100         # mask RIGHT at/forward of this (keep the ship in the back ~40%)
+# X_SAFE_FRONT: mask RIGHT at/forward of this x (keep the ship back). None = cap OFF
+# (full positional freedom). Set to 100 (back ~40%) it SOLVED gauntlet #1 (front-hugging
+# = no reaction time there). But it may FUNNEL the ship into the fork's dead-end channel
+# by forbidding front positioning — so we're testing cap-off + higher exploration to see
+# if the agent can find a passing line the cap was hiding. Fallback if gauntlet #1
+# regresses: score-gate the cap (on for score < ~250, off at the fork).
+X_SAFE_FRONT = None
 
 # --- Preprocessing -----------------------------------------------------------
 FRAME_SKIP = 4
