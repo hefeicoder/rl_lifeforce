@@ -17,7 +17,25 @@ scans) and cross-checked against the public
 | `0x002F` (47)   | 1  | **auto-scroll clock** — increments ~0.25/frame regardless of input, wraps at 256 | scan (monotonic, input-independent) |
 
 \* score is 3 meaningful BCD bytes; the bundled integration reads it as a 4-byte
-little-endian value at `0x07E4`.
+little-endian value at `0x07E4`. **Note:** the HUD shows score ×10 (the internal
+counter is 1/10 of the displayed number — e.g. internal 262 = HUD `2620`).
+
+## Power-up / weapon state (Data Crystal, verified via ram_hunt)
+
+The Gradius-style meter: collect capsules (cursor `0x78` advances), then press the
+power-up button to spend the cursor's current slot. Used by the power-up reward
+shaping in `src/config.py`.
+
+| Address | Meaning | Notes |
+|--------:|---------|-------|
+| `0x0078` (120) | **power-bar cursor** | 1=speed, 2=missile, 3=ripple, 4=laser, 5=option, 6=force field. Advances on capsule pickup; resets to 0 on activation (verified). |
+| `0x0080` (128) | **speed** level (≤10) | verified 0→1 on activating at slot 1 |
+| `0x0082` (130) | **Force Field / shield** | starts at 5 hits when activated |
+| `0x0086` (134) | **Missiles** | "two speeds" (≈ two levels) |
+| `0x008A` (138) | **Options** (≤2) | floating drones |
+| `0x0076` (118) | **current weapon** | 0=Normal, 1=Ripple, 2=Laser |
+| `0x0070` (112) | **player control state** | 3=active, 4/5=dying, 1/2=flying-in — a precise death signal (verified via the death/respawn cycle) |
+| `0x0084` (132) | **invulnerability frames** | 128 on spawn, counts down (verified) |
 
 ## Stage-transition suspects (unconfirmed — need a Stage-2 observation)
 

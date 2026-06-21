@@ -30,6 +30,17 @@ own ROM, and extending the game integration (finding RAM addresses) yourself.
   (no speed), and exploration. (The bundled 10M-step benchmark never cleanly
   cleared either — this is hard.)
 
+## Docs
+
+- **[`docs/devlog.md`](docs/devlog.md)** — decisions, lessons, and current state.
+  **Read this to pick up the project cold:** why things are the way they are, what
+  we tried, where we're stuck, and what to try next.
+- **[`docs/ram_map.md`](docs/ram_map.md)** — the game's RAM addresses we use
+  (score, lives, position, power-up state) and how we found them.
+- **[`docs/macos_arm64_build.md`](docs/macos_arm64_build.md)** — building
+  stable-retro on Apple Silicon: the three non-obvious blockers (mislabeled wheel,
+  removed Homebrew formula, clang vs the old cores) and the fixes.
+
 ## Quickstart
 
 ### 1. Install (Apple Silicon / macOS)
@@ -152,13 +163,6 @@ more sample-efficient than a flat 18-action set.
 **Missile > Option > Force Field**, with **Speed penalized** (too many speed-ups
 make the ship overshoot in tight terrain). Rewarding *state increases* means
 upgrade caps self-enforce. Shows as `reward/powerup`.
-
-## The interesting part: build & integration notes
-
-We hit (and documented) three non-obvious blockers getting stable-retro running
-on a current Apple-Silicon Mac — a mislabeled wheel, a removed Homebrew formula,
-and modern clang refusing to compile the old Genesis/PCE cores. Full writeup:
-[`docs/macos_arm64_build.md`](docs/macos_arm64_build.md).
 
 ## Licensing
 
