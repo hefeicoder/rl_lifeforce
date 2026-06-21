@@ -90,9 +90,21 @@ or control precision (`FRAME_SKIP` 2) — the structural fresh-train levers.
   `2620`). `reward/score` ≈ internal_score_delta × 10.
 - **The gauntlet is deterministic** (fixed terrain) → memorizable with focused
   practice, which is why save-state curriculum is the right tool.
-- **Throughput: ~278 fps on CPU, env-bound.** More `N_ENVS` barely helps (the
-  bottleneck is emulation/IPC, not the tiny NatureCNN). **MPS is ~25% slower**
-  than CPU (CPU↔GPU transfer overhead with no compute win). Train on CPU.
+- **We are COMPUTE-bound on the gradient updates, not env-bound** (corrected — the
+  old "env-bound, train on CPU" claim was wrong). Profiled via `tools/bench.py`:
+  env stepping runs at **~2700 agent-sps (~10800 emulated fps)**, but real training
+  settles at **~250 fps on CPU**. Per PPO cycle (4096 steps): rollout ≈ 2.4 s, but
+  the **learn phase ≈ 14 s (~85% of wall-clock)** — NatureCNN backprop on CPU
+  (batch 1024). So:
+  - **More `N_ENVS` barely helps** (env throughput is already 10x the training
+    rate; 16 envs oversubscribe the 10 cores and per-env fps halves).
+  - **MPS is ~2.5x FASTER, not slower** (~629 fps stable vs ~250 declining; CPU
+    thermally throttles under sustained backprop, MPS doesn't). The old "MPS 25%
+    slower" was measured before we knew the learn phase dominates. **Train on MPS.**
+  - `--device auto` now resolves to MPS on Apple Silicon (SB3's own "auto" only
+    picks CUDA-or-CPU, so it was silently using CPU). Resume also now honors the
+    device (it previously ignored `--device` and always used CPU).
+  - Re-benchmark anytime: `python -m tools.bench --model <ckpt>`.
 - **macOS sleeps pause training** — use `caffeinate -is` for overnight runs.
 
 ---

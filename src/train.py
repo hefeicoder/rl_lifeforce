@@ -108,6 +108,22 @@ def linear_schedule(initial, floor=0.0):
     return f
 
 
+def resolve_device(device):
+    """Resolve --device. SB3's own 'auto' only ever picks CUDA-or-CPU (never MPS),
+    so on Apple Silicon 'auto' would silently train on CPU. We benchmarked the PPO
+    learn phase (batch-1024 conv backprop) at ~85% of wall-clock and MPS ~2.5x
+    faster end-to-end than CPU (and CPU thermally throttles on long runs), so we
+    prefer MPS when available. Pass --device cpu to force CPU."""
+    if device == "auto":
+        try:
+            import torch
+            if torch.backends.mps.is_available():
+                return "mps"
+        except Exception:
+            pass
+    return device
+
+
 def main():
     p = argparse.ArgumentParser()
     p.add_argument("--timesteps", type=int, default=C.TOTAL_TIMESTEPS)
@@ -115,7 +131,7 @@ def main():
     p.add_argument("--smoke", action="store_true", help="tiny sanity run")
     p.add_argument("--resume", default=None, help="path to a checkpoint .zip to continue from")
     p.add_argument("--device", default="auto",
-                   help="torch device: 'auto'/'cpu'/'mps' (use 'mps' for Apple-GPU acceleration)")
+                   help="torch device: 'auto' (=mps on Apple Silicon, ~2.5x faster) / 'cpu' / 'mps'")
     p.add_argument("--save-freq", type=int, default=C.CHECKPOINT_EVERY,
                    help="save a checkpoint every N total timesteps")
     p.add_argument("--run-name", default=None, dest="run_name",
@@ -139,10 +155,12 @@ def main():
     load_norm = vecnorm_for(args.resume) if args.resume else None
     venv = build_vec_env(args.n_envs, load_norm=load_norm)
 
+    device = resolve_device(args.device)
+    print(f"Device: {device}")
     ent_coef = args.ent_coef if args.ent_coef is not None else C.ENT_COEF
     if args.resume:
         print(f"Resuming from {args.resume}")
-        model = PPO.load(args.resume, env=venv, tensorboard_log=C.TB_LOG_DIR)
+        model = PPO.load(args.resume, env=venv, tensorboard_log=C.TB_LOG_DIR, device=device)
         model.ent_coef = ent_coef          # allow raising exploration on resume
     else:
         lr = linear_schedule(C.LEARNING_RATE, C.LR_FLOOR) if C.LR_ANNEAL else C.LEARNING_RATE
@@ -151,7 +169,7 @@ def main():
             n_steps=C.N_STEPS, n_epochs=C.N_EPOCHS, batch_size=C.BATCH_SIZE,
             learning_rate=lr, gamma=C.GAMMA, gae_lambda=C.GAE_LAMBDA,
             clip_range=C.CLIP_RANGE, ent_coef=ent_coef, target_kl=C.TARGET_KL,
-            tensorboard_log=C.TB_LOG_DIR, verbose=1, device=args.device,
+            tensorboard_log=C.TB_LOG_DIR, verbose=1, device=device,
         )
 
     # CheckpointCallback's save_freq counts per-env steps, so divide the desired

@@ -147,9 +147,12 @@ Most knobs live in [`src/config.py`](src/config.py): reward weights (`REWARD_*`)
 
 **Training:** PPO (`CnnPolicy` / NatureCNN) on **8 parallel emulators**
 (`SubprocVecEnv` — stable-retro allows only one emulator per process) for
-decorrelated experience. **Train on CPU** — the workload is *env-bound* (emulator
-stepping dominates; NatureCNN is too small for a GPU to help). `--device mps`
-benchmarked ~25% *slower* on Apple Silicon.
+decorrelated experience. **Train on the GPU (MPS) on Apple Silicon** — profiling
+(`tools/bench.py`) shows the workload is *compute-bound on the gradient updates*
+(the learn phase is ~85% of wall-clock; env stepping is 10× faster than the
+training rate), so MPS is **~2.5× faster** than CPU. `--device auto` picks MPS
+automatically here; more `N_ENVS` does **not** help (env throughput isn't the
+bottleneck).
 
 **Reward:** **survival is #1**, enforced by ending the episode on death (dying
 forfeits all remaining reward) rather than a large idle bonus — so the agent
