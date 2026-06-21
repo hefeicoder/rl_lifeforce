@@ -138,6 +138,12 @@ def main():
                    help="name for this run's output folder (default: timestamp)")
     p.add_argument("--ent-coef", type=float, default=None, dest="ent_coef",
                    help="override entropy coefficient (higher = more exploration; default config.ENT_COEF)")
+    p.add_argument("--batch-size", type=int, default=None, dest="batch_size",
+                   help="minibatch size (default config.BATCH_SIZE); larger = better GPU utilization")
+    p.add_argument("--n-steps", type=int, default=None, dest="n_steps",
+                   help="rollout length per env (default config.N_STEPS); fresh runs only")
+    p.add_argument("--n-epochs", type=int, default=None, dest="n_epochs",
+                   help="PPO passes per rollout (default config.N_EPOCHS)")
     args = p.parse_args()
 
     if args.smoke:
@@ -158,15 +164,22 @@ def main():
     device = resolve_device(args.device)
     print(f"Device: {device}")
     ent_coef = args.ent_coef if args.ent_coef is not None else C.ENT_COEF
+    batch_size = args.batch_size or C.BATCH_SIZE
+    n_steps = args.n_steps or C.N_STEPS
+    n_epochs = args.n_epochs or C.N_EPOCHS
     if args.resume:
         print(f"Resuming from {args.resume}")
         model = PPO.load(args.resume, env=venv, tensorboard_log=C.TB_LOG_DIR, device=device)
         model.ent_coef = ent_coef          # allow raising exploration on resume
+        model.batch_size, model.n_epochs = batch_size, n_epochs  # safe to change on resume
+        if args.n_steps and args.n_steps != model.n_steps:
+            print("warning: --n-steps only takes effect on a fresh run (it sizes the "
+                  "rollout buffer at construction); ignoring on resume")
     else:
         lr = linear_schedule(C.LEARNING_RATE, C.LR_FLOOR) if C.LR_ANNEAL else C.LEARNING_RATE
         model = PPO(
             "CnnPolicy", venv,
-            n_steps=C.N_STEPS, n_epochs=C.N_EPOCHS, batch_size=C.BATCH_SIZE,
+            n_steps=n_steps, n_epochs=n_epochs, batch_size=batch_size,
             learning_rate=lr, gamma=C.GAMMA, gae_lambda=C.GAE_LAMBDA,
             clip_range=C.CLIP_RANGE, ent_coef=ent_coef, target_kl=C.TARGET_KL,
             tensorboard_log=C.TB_LOG_DIR, verbose=1, device=device,

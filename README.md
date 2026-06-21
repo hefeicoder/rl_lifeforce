@@ -145,14 +145,15 @@ Most knobs live in [`src/config.py`](src/config.py): reward weights (`REWARD_*`)
 
 ## How it works (design)
 
-**Training:** PPO (`CnnPolicy` / NatureCNN) on **8 parallel emulators**
+**Training:** PPO (`CnnPolicy` / NatureCNN) on **16 parallel emulators**
 (`SubprocVecEnv` — stable-retro allows only one emulator per process) for
 decorrelated experience. **Train on the GPU (MPS) on Apple Silicon** — profiling
-(`tools/bench.py`) shows the workload is *compute-bound on the gradient updates*
-(the learn phase is ~85% of wall-clock; env stepping is 10× faster than the
-training rate), so MPS is **~2.5× faster** than CPU. `--device auto` picks MPS
-automatically here; more `N_ENVS` does **not** help (env throughput isn't the
-bottleneck).
+(`tools/bench.py`) shows the gradient/learn phase, which is ~85% of CPU wall-clock,
+runs far faster on MPS (**~2.5×** end-to-end). `--device auto` picks MPS here. On
+MPS the bottleneck then shifts to *per-step policy inference* (CPU↔GPU transfer),
+so raising **`N_ENVS`** amortizes it over a bigger batch and scales throughput
+further (8→16 ≈ 1.5×, up to ~2.2× at 32) — combined ~5× over the CPU baseline. See
+[`docs/devlog.md`](docs/devlog.md) for the full profile.
 
 **Reward:** **survival is #1**, enforced by ending the episode on death (dying
 forfeits all remaining reward) rather than a large idle bonus — so the agent

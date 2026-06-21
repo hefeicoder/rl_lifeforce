@@ -90,21 +90,36 @@ or control precision (`FRAME_SKIP` 2) — the structural fresh-train levers.
   `2620`). `reward/score` ≈ internal_score_delta × 10.
 - **The gauntlet is deterministic** (fixed terrain) → memorizable with focused
   practice, which is why save-state curriculum is the right tool.
-- **We are COMPUTE-bound on the gradient updates, not env-bound** (corrected — the
-  old "env-bound, train on CPU" claim was wrong). Profiled via `tools/bench.py`:
-  env stepping runs at **~2700 agent-sps (~10800 emulated fps)**, but real training
-  settles at **~250 fps on CPU**. Per PPO cycle (4096 steps): rollout ≈ 2.4 s, but
-  the **learn phase ≈ 14 s (~85% of wall-clock)** — NatureCNN backprop on CPU
-  (batch 1024). So:
-  - **More `N_ENVS` barely helps** (env throughput is already 10x the training
-    rate; 16 envs oversubscribe the 10 cores and per-env fps halves).
-  - **MPS is ~2.5x FASTER, not slower** (~629 fps stable vs ~250 declining; CPU
-    thermally throttles under sustained backprop, MPS doesn't). The old "MPS 25%
-    slower" was measured before we knew the learn phase dominates. **Train on MPS.**
-  - `--device auto` now resolves to MPS on Apple Silicon (SB3's own "auto" only
-    picks CUDA-or-CPU, so it was silently using CPU). Resume also now honors the
-    device (it previously ignored `--device` and always used CPU).
-  - Re-benchmark anytime: `python -m tools.bench --model <ckpt>`.
+- **Throughput: the bottleneck moves twice — full story (was wrong before).** The
+  old "env-bound, train on CPU, MPS 25% slower" claim was backwards. Profiled with
+  `tools/bench.py` on an M1 Max (10-core); combined result is **~5.5x over the
+  original CPU/8-env setup (250 → 1378 fps)**. How:
+  1. **Env stepping is NOT the bottleneck.** It runs ~2700 agent-sps (~10800
+     emulated fps) — ~10x the training rate. (An env-only N_ENVS sweep with random
+     actions barely scaled — misleading, because it omits the policy.)
+  2. **On CPU, the gradient/learn phase dominates (~85%).** Per PPO cycle (4096
+     steps): rollout ≈ 2.4 s, learn ≈ 14 s — NatureCNN backprop on CPU, batch 1024.
+     → ~250 fps, and CPU *thermally throttles* on long runs (408→255).
+  3. **MPS makes learn ~5x cheaper → ~2.5x end-to-end (~629 fps, stable).** So
+     `--device auto` now resolves to MPS on Apple Silicon (SB3's own "auto" only
+     picks CUDA-or-CPU, so it silently used CPU; resume also ignored `--device` and
+     always used CPU — both fixed).
+  4. **On MPS the bottleneck flips to the ROLLOUT — specifically per-step policy
+     inference** (batch-8 forward pass with CPU↔GPU transfer, 512x/cycle). Confirmed
+     because `N_EPOCHS=1` is only ~10% faster than 4 (if learn still dominated it'd
+     be ~4x), i.e. learn is now only ~12% of the cycle.
+  5. **Therefore the lever on MPS is `N_ENVS`**, which amortizes those transfers
+     over a bigger predict batch (same #transfers/cycle, more samples each): 8→629,
+     12→779, 16→943, 24→1166, 32→1378 fps. Default bumped 8→**16**. Nearly free for
+     learning (for a fixed timestep budget PPO does the same #gradient-updates
+     regardless of N_ENVS); cost is rollout-buffer memory + mild sample-efficiency
+     risk at very high counts.
+  - **Dead ends (tested, don't bother):** `BATCH_SIZE` 512→4096 moved fps ~5%
+    (it's a learn-phase knob; learn no longer dominates). `N_EPOCHS` down only ~10%
+    and it's a sample-efficiency trade.
+  - Re-benchmark anytime: `python -m tools.bench` (env sweep) / `--model <ckpt>`
+    (predict split); sweep N_ENVS/batch/epochs via `src.train` flags + `--save-freq
+    999999`.
 - **macOS sleeps pause training** — use `caffeinate -is` for overnight runs.
 
 ---

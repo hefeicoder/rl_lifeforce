@@ -105,7 +105,12 @@ FRAME_SIZE = 84             # bullets are small; bump this if the agent can't "s
 FRAME_STACK = 4
 
 # --- PPO / training ----------------------------------------------------------
-N_ENVS = 8
+# N_ENVS is the #1 throughput lever on MPS (see docs/devlog.md): the bottleneck is
+# per-step policy inference (CPU<->GPU transfer), and more envs amortize it over a
+# bigger batch per call. Benchmarked on M1 Max: 8->629, 16->943, 32->1378 fps.
+# Cost: rollout-buffer memory grows with N_ENVS, and very large counts can slightly
+# dent sample efficiency. 16 is a safe 1.5x; bump via --n-envs 24/32 for raw speed.
+N_ENVS = 16
 N_STEPS = 512
 N_EPOCHS = 4
 BATCH_SIZE = 1024
