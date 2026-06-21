@@ -58,7 +58,9 @@ def main():
         fh.write(best_state)
     print(f"\nCaptured ~{args.before_death} steps before death of the furthest run "
           f"({best_steps} steps) -> {out}")
-    print("Now resume training; it will mix this state in automatically:")
+    print("Replay this state to verify it's a fair approach (not a cornered frame):")
+    print(f"  python -m src.play --model {args.model} --from-state {out}")
+    print("Then resume training; it will mix this state in automatically:")
     print(f"  python -m src.train --resume {args.model}")
     try:
         env.close()
