@@ -87,6 +87,18 @@ MAX_SPEED = 2              # speed levels up to here are "good"; beyond = over-s
 REWARD_SPEED = 0.5         # bonus per speed level gained up to MAX_SPEED
 REWARD_OVERSPEED = -5.0    # penalty per speed level gained ABOVE MAX_SPEED (much heavier)
 
+# --- Positional cap (action mask, like the speed cap) ------------------------
+# Hugging the leading (front/right) edge leaves no time to react to terrain and
+# enemies that scroll in from the front — which is exactly how the agent dies at
+# the gauntlet. So we MASK the RIGHT button once the ship is at/forward of
+# X_SAFE_FRONT: it physically cannot advance past the back zone (it can still
+# hold position, retreat, and move vertically). A mask, not a positional penalty,
+# for the same reason the speed cap is a mask — a penalty fights an arms race.
+# x_pos ranges ~15 (far back/left) .. 232 (front/right edge).
+X_POS_MIN = 15
+X_POS_MAX = 232
+X_SAFE_FRONT = 100         # mask RIGHT at/forward of this (keep the ship in the back ~40%)
+
 # --- Preprocessing -----------------------------------------------------------
 FRAME_SKIP = 4
 FRAME_SIZE = 84             # bullets are small; bump this if the agent can't "see" threats

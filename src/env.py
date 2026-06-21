@@ -74,22 +74,33 @@ class Discretizer(gym.ActionWrapper):
                 arr[buttons.index(name)] = 1
             self._moves.append(arr)
         self._activate_idx = buttons.index(activate_button)
+        self._right_idx = buttons.index("RIGHT")
         self.action_space = gym.spaces.MultiDiscrete([len(self._moves), 2])
 
     def action(self, act):
         move_idx, activate = int(act[0]), int(act[1])
+        ram = self.env.unwrapped.get_ram()
         arr = self._moves[move_idx].copy()
-        if activate and not self._would_overspeed():
+        if activate and not self._would_overspeed(ram):
             arr[self._activate_idx] = 1
+        if self._too_far_front(ram):
+            arr[self._right_idx] = 0   # positional cap: no advancing past the back zone
         return arr
 
-    def _would_overspeed(self):
+    def _would_overspeed(self, ram):
         # Hard cap: refuse to activate the power-up when the meter cursor is on the
         # SPEED slot and speed is already at MAX_SPEED. Too much speed makes the
         # ship overshoot in tight terrain, and a reward penalty alone can't stop
         # the agent (speed is net-positive early), so we prevent it outright.
-        ram = self.env.unwrapped.get_ram()
         return int(ram[C.ADDR_POWERBAR]) == C.SPEED_SLOT and int(ram[C.ADDR_SPEED]) >= C.MAX_SPEED
+
+    def _too_far_front(self, ram):
+        # Hard cap on forward position: drop RIGHT once the ship is at/forward of
+        # X_SAFE_FRONT, so it can't hug the leading edge (no reaction time to
+        # terrain scrolling in — the gauntlet death). It can still retreat, hover,
+        # and move vertically. A mask, not a penalty, for the same reason as the
+        # speed cap.
+        return int(ram[C.ADDR_X_POS]) >= C.X_SAFE_FRONT
 
 
 class LifeForceWrapper(gym.Wrapper):

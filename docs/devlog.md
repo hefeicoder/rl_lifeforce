@@ -63,10 +63,21 @@ past it (confirmed by watching a replay).
    15×/sec; threading a narrowing gap may need finer timing than that can express.
    Fresh train; episodes get longer (more decisions/sec) so slower wall-clock.
 
-**Immediate recommended action:** capture the gauntlet *approach* off
-`lv1-speedcap_2` (`--before-death 120`, agent now arrives slow), then resume-train
-with it in `states/`; watch `lifeforce/best_score` for movement past 280. If solid
-drilling still won't move it, escalate to perception (`FRAME_SIZE` 128).
+**Positional cap (CURRENT experiment — cheap, resume-able).** Watching a replay of
+the stuck policy: the ship **hugs the leading (front/right) edge**, so terrain and
+enemies scrolling in from the front give it no time to react — a textbook shmup
+death. Fix: **mask the RIGHT button once x_pos ≥ `X_SAFE_FRONT` (=100)** so the ship
+physically can't advance past the back ~40% (it can still retreat, hover, move
+vertically). Same hard-mask pattern as the speed cap, and for the same reason (a
+positional penalty would fight an arms race). **Crucially this is a behavior/action
+change, not an obs change → resumes from the 800k checkpoint, no fresh train** — so
+it's cheaper than the two structural levers below and is tried first. If hanging
+back lets the agent survive the gauntlet, `best_score` clears 280.
+
+**Immediate recommended action:** resume `lv1-drill-explore`'s 800k checkpoint with
+the positional cap (`--run-name lv1-stayback`); watch `lifeforce/best_score` for
+movement past 280. If it doesn't move, fall through to perception (`FRAME_SIZE` 128)
+or control precision (`FRAME_SKIP` 2) — the structural fresh-train levers.
 
 ---
 
