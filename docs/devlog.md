@@ -19,34 +19,41 @@ at internal score ~**262** (HUD `2620`). Curriculum drilling pushed the best to
 past it (confirmed by watching a replay).
 
 **Levers to get past the gauntlet, in priority order (cheapest first):**
-1. **Loadout fix (in progress).** The agent poured every capsule into **Speed**
-   (`speed=7`) → the ship overshoots and can't make fine corrections in the gap.
-   Prioritize **Missile > Option > Force Field**; for speed, we **hard-cap** it at
-   `MAX_SPEED=2` via **action masking** (the Discretizer refuses to activate the
-   power-up on the speed slot once speed ≥ cap). *Reward penalties failed first:*
-   flat `-1.0`, then a threshold `-5.0`/over-level — the agent over-sped **anyway**
-   both times (`reward/powerup` started positive then declined as it learned to
-   over-speed past the penalty). Reason: speed is genuinely net-positive early
-   (dodge → survive → score, hundreds of reward) and the gauntlet-overshoot cost
-   is ~600 steps away → γ-discounted to ~0, so no affordable penalty beats it. The
-   hard cap sidesteps the arms race and cleanly **tests the hypothesis**: if a
-   ≤2-speed agent threads the gauntlet, speed was the blocker; if not, it wasn't.
-   Run fresh (no speed habit to fight).
-2. **Earlier curriculum capture.** The captured wall state was ~30 steps before
-   death with the ship already cornered at `x=14` (far-left) — likely an
-   *unwinnable* position. Re-capture with a bigger lead-in (`--before-death 120`)
-   so the agent drills the *approach*, not the death frame. Do this once the
-   agent reaches the wall *slow* (low speed).
+1. **Loadout fix — DONE; fixed the loadout but did NOT break the wall.** The agent
+   poured every capsule into **Speed** (`speed=7`) → the ship overshoots and can't
+   make fine corrections in the gap. We **hard-cap** speed at `MAX_SPEED=2` via
+   **action masking** (the Discretizer refuses to activate the power-up on the
+   speed slot once speed ≥ cap). *Reward penalties failed first:* flat `-1.0`, then
+   a threshold `-5.0`/over-level — the agent over-sped **anyway** both times
+   (`reward/powerup` started positive then declined as it learned to over-speed
+   past the penalty). Reason: speed is net-positive early (dodge → survive → score,
+   hundreds of reward) and the gauntlet-overshoot cost is ~600 steps away →
+   γ-discounted to ~0, so no affordable penalty beats it. **Result of the fresh
+   `lv1-speedcap_2` run (~800k steps):** the cap worked exactly as designed —
+   `reward/powerup` flipped from **−4.25 → +11.29** (capsules now go to
+   Missile/Option/Force Field) and in-segment `reward/score` **doubled** (~1078 →
+   ~2284). **But `lifeforce/best_score` stayed pinned at ~280** (same plateau as
+   every prior run) and `clear_rate` stayed 0. So the doubled score was *more
+   scoring at the same chokepoint before dying*, not getting further.
+   **Verdict: speed was NOT the blocker** — a real behavioral bug, now fixed (keep
+   the cap), but the gauntlet has a second, independent cause. Loadout is ruled out.
+2. **Earlier curriculum capture (NOW the frontier).** Previously blocked: the
+   captured wall state was ~30 steps before death with the ship already cornered at
+   `x=14` (far-left) from *over-speeding* — an unwinnable frame. With the speed cap,
+   the agent now arrives **slow and controlled**, so a capture of the *approach*
+   (`--before-death 120`) is finally meaningful. Drill it off the `lv1-speedcap_2`
+   checkpoint and watch `best_score` for movement past 280.
 3. **Exploration** (`--ent-coef 0.03`) — untested as a deliberate lever; may help
    escape the stuck strategy at the wall.
 4. **Perception** (`FRAME_SIZE` 84→128) — the gap is a few pixels at 84×84
    grayscale; the agent may literally not resolve it. Expensive (fresh train,
-   ~9× cost at 256, so try 128). **Last resort**, only after 1–3 fail.
+   ~9× cost at 256, so try 128). **Last resort**, only after 2–3 fail — but now the
+   leading suspect for the *second cause*, since loadout is ruled out.
 
-**Immediate recommended action:** fresh train with the no-speed reward (curriculum
-off / `states/` empty) so it learns the correct loadout from scratch; watch
-`reward/powerup` go **positive** (right loadout) and `lifeforce/best_score` for
-movement past 280.
+**Immediate recommended action:** capture the gauntlet *approach* off
+`lv1-speedcap_2` (`--before-death 120`, agent now arrives slow), then resume-train
+with it in `states/`; watch `lifeforce/best_score` for movement past 280. If solid
+drilling still won't move it, escalate to perception (`FRAME_SIZE` 128).
 
 ---
 
@@ -92,8 +99,15 @@ movement past 280.
    training). It nudged best_score 262→280 then re-plateaued.
 6. **Cornered-capture lesson.** The plateau was partly because we were drilling an
    *already-lost* state (ship cornered at `x=14`). Capture *earlier*.
-7. **Loadout lesson.** The agent over-invested in Speed, which *hurts* a precision
-   navigation task. Penalize speed (current frontier).
+7. **Loadout lesson (resolved).** The agent over-invested in Speed, which *hurts* a
+   precision navigation task. Reward penalties couldn't stop it (speed is
+   net-positive early; the overshoot cost is γ-discounted to ~0) → switched to a
+   **hard cap via action masking**. The cap worked (`reward/powerup` −4.25 → +11.29,
+   score doubled) but `best_score` stayed at ~280 — so **speed was a real bug but
+   not the gauntlet blocker.** Lesson: when a reward penalty can't beat a
+   discounted future cost, mask the action instead of pricing it; and a fixed
+   behavior that doesn't move the headline metric means you ruled out a cause, not
+   solved the problem.
 8. **Measurement lesson.** Under curriculum, `reward/*` averages are **diluted**
    by short hard wall-start episodes — they look bad even when progressing. Judge
    progress by **`lifeforce/best_score`** (absolute score, which the save state
@@ -130,5 +144,10 @@ movement past 280.
   to `states/` (envs pick it up live via re-glob), and drills it — automating the
   plateau→capture→drill loop. Build only after manual curriculum demonstrably
   breaks a wall.
-- **Does the loadout fix (no speed) actually break the gauntlet?** The current
-  open experiment.
+- **Does the loadout fix (no speed) break the gauntlet?** **Answered: no.** The
+  hard cap fixed the loadout (`reward/powerup` positive, score doubled) but
+  `best_score` stayed at ~280. Speed ruled out; gauntlet has a second cause.
+- **What IS the gauntlet blocker?** Open. Remaining suspects, now that loadout is
+  ruled out: (a) the approach isn't being drilled (earlier curriculum capture —
+  next experiment), (b) the gap is unresolvable at 84×84 (perception / `FRAME_SIZE`
+  128).
