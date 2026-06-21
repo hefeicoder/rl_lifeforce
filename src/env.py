@@ -79,9 +79,17 @@ class Discretizer(gym.ActionWrapper):
     def action(self, act):
         move_idx, activate = int(act[0]), int(act[1])
         arr = self._moves[move_idx].copy()
-        if activate:
+        if activate and not self._would_overspeed():
             arr[self._activate_idx] = 1
         return arr
+
+    def _would_overspeed(self):
+        # Hard cap: refuse to activate the power-up when the meter cursor is on the
+        # SPEED slot and speed is already at MAX_SPEED. Too much speed makes the
+        # ship overshoot in tight terrain, and a reward penalty alone can't stop
+        # the agent (speed is net-positive early), so we prevent it outright.
+        ram = self.env.unwrapped.get_ram()
+        return int(ram[C.ADDR_POWERBAR]) == C.SPEED_SLOT and int(ram[C.ADDR_SPEED]) >= C.MAX_SPEED
 
 
 class LifeForceWrapper(gym.Wrapper):

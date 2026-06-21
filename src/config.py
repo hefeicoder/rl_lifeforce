@@ -20,6 +20,7 @@ ADDR_STAGE_VERTICAL = 0x40  # "Is Stage Vertical?" — flips 0->1 on the vertica
 # can read these to learn the Gradius-style meter: collect capsules (0x78 cursor
 # advances), then spend to gain upgrades. Caps are inherent (e.g. options <= 2).
 ADDR_POWERBAR = 0x78       # power-bar cursor (1=speed,2=missile,3=ripple,4=laser,5=option,6=force field)
+SPEED_SLOT = 1             # cursor value where activating gives Speed (verified)
 ADDR_SPEED = 0x80          # speed level (up to 10)
 ADDR_SHIELD = 0x82         # Force Field / shield strength (starts at 5 hits when activated)
 ADDR_MISSILE = 0x86        # Missile equipped
@@ -70,13 +71,14 @@ MAX_EPISODE_STEPS = 2000    # agent-step time limit (post frame-skip)
 # self-enforcing — a maxed upgrade can't increase, so it earns nothing and the
 # agent learns not to waste capsules on it). Teaches: eat capsules, accumulate,
 # spend well. Priority for scoring: Missile > Option > Force Field.
-# Loadout priority: Missile > Option > Force Field. SPEED is THRESHOLDED — a
-# little speed helps (dodging), but too much makes the ship overshoot and crash
-# in tight terrain. So speed up to MAX_SPEED earns a small bonus; each level
-# BEYOND it is heavily penalized. The penalty is immediate (on the speed gain),
-# so the agent can actually learn the cap — unlike a far-off gauntlet death,
-# which γ-discounting hides. A flat speed penalty failed: speed is net-positive
-# early, so the agent kept grabbing it despite a small penalty.
+# Loadout priority: Missile > Option > Force Field. SPEED is HARD-CAPPED at
+# MAX_SPEED: the Discretizer (env.py) refuses to activate the power-up on the
+# speed slot once speed >= MAX_SPEED, so the agent physically can't over-speed.
+# Why a hard cap and not a penalty: speed is net-positive early (dodge -> survive
+# -> score), and the place it hurts (gauntlet overshoot) is ~600 steps away,
+# γ-discounted to nothing — so the agent kept over-speeding even at a -5/level
+# penalty. The REWARD_SPEED/REWARD_OVERSPEED weights below are now a backstop;
+# the mask is the real enforcer.
 REWARD_CAPSULE = 0.5        # ate a capsule (cursor advanced) — currency for upgrades
 REWARD_MISSILE = 4.0        # acquired Missile (top priority)
 REWARD_OPTION = 3.0         # acquired an Option (max 2)
