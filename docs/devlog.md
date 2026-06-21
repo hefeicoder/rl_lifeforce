@@ -9,14 +9,32 @@ pick up the project cold. (Reference: [`ram_map.md`](ram_map.md),
 
 ## Current state & next steps (read this first)
 
-**Goal:** clear Level 1. **Status:** the agent reliably reaches a mid-stage
-terrain **"gauntlet"** (organic walls that narrow the passage) but **cannot
-thread it** — training plateaus there. It does *not* yet clear the level.
+**Goal:** clear Level 1. **Status:** the **first** mid-stage "gauntlet" (narrowing
+terrain) is **SOLVED** — the agent threads it once it stops hugging the front edge
+(see the positional cap below). `best_score` broke its long ~280 plateau and now
+sits at **~380**. It still does *not* clear the level: it's stuck at a **new** wall,
+a **branching fork** further in.
 
-**The wall, concretely:** from the level start the agent dies at ~**615 steps**
-at internal score ~**262** (HUD `2620`). Curriculum drilling pushed the best to
-~**280** but that was mostly extra kills at the same chokepoint, not getting
-past it (confirmed by watching a replay).
+**History of the first wall (solved):** the agent plateaued at internal score ~**280**
+(HUD `2800`) for every run — ruled out loadout, curriculum-practice, and exploration
+(all below). The real cause, found by *watching a replay*: the ship **hugged the
+front/right edge** with no time to react to terrain scrolling in. Hard-capping its
+forward position (mask RIGHT past `X_SAFE_FRONT`) broke it → **280 → 380**, confirmed
+both on resume (`lv1-stayback`) and a **fresh from-scratch 16-env run**
+(`lv1-speed-improve`, 1M steps / 17 min — also the sanity check that the new MPS +
+N_ENVS=16 defaults preserve learning).
+
+**The current wall — the fork (380):** after the first gauntlet the path **branches**;
+the **upper channel is correct, the lower is a dead end** (user observation, replay).
+The agent can't reliably pick upper — `recent_best_score` is **bimodal** (~270 when
+it takes the dead end, ~380 when it goes up). It's a deterministic branch with a
+**delayed-trap credit-assignment** problem: the dead-end death comes ~100+ steps
+after the choice, γ-discounted to a weak signal, and from a full-level start the
+agent reaches the fork on few episodes. **Next: drill the fork with save-state
+curriculum** (capture just before the dead-end death → every episode starts at the
+decision → strong, concentrated signal). Fallbacks if drilling fails: raise γ
+(0.99→0.997) to propagate the distant signal; recurrent policy only if the fork is
+truly visually ambiguous (suspected not — the scenery is a distinctive landmark).
 
 **Levers to get past the gauntlet, in priority order (cheapest first):**
 1. **Loadout fix — DONE; fixed the loadout but did NOT break the wall.** The agent
@@ -63,21 +81,25 @@ past it (confirmed by watching a replay).
    15×/sec; threading a narrowing gap may need finer timing than that can express.
    Fresh train; episodes get longer (more decisions/sec) so slower wall-clock.
 
-**Positional cap (CURRENT experiment — cheap, resume-able).** Watching a replay of
-the stuck policy: the ship **hugs the leading (front/right) edge**, so terrain and
-enemies scrolling in from the front give it no time to react — a textbook shmup
+**Positional cap — CONFIRMED, this is what broke the first wall.** Watching a replay
+of the stuck policy: the ship **hugged the leading (front/right) edge**, so terrain
+and enemies scrolling in from the front gave it no time to react — a textbook shmup
 death. Fix: **mask the RIGHT button once x_pos ≥ `X_SAFE_FRONT` (=100)** so the ship
 physically can't advance past the back ~40% (it can still retreat, hover, move
-vertically). Same hard-mask pattern as the speed cap, and for the same reason (a
-positional penalty would fight an arms race). **Crucially this is a behavior/action
-change, not an obs change → resumes from the 800k checkpoint, no fresh train** — so
-it's cheaper than the two structural levers below and is tried first. If hanging
-back lets the agent survive the gauntlet, `best_score` clears 280.
+vertically). Same hard-mask pattern as the speed cap, same reasoning (a positional
+penalty would fight an arms race). **Result: `best_score` 280 → 380** — confirmed on
+a resume (`lv1-stayback`) *and* a fresh from-scratch run (`lv1-speed-improve`). This
+was the structural cause all along; the perception/frame-skip levers below were never
+needed for the first wall (keep them in reserve for the fork only if drilling fails).
+Note it's an action-only change, so it applies on resume *and* fresh with no obs
+change. Tunable: `X_SAFE_FRONT` lower (~70) for stricter back-25% if a later section
+needs it.
 
-**Immediate recommended action:** resume `lv1-drill-explore`'s 800k checkpoint with
-the positional cap (`--run-name lv1-stayback`); watch `lifeforce/best_score` for
-movement past 280. If it doesn't move, fall through to perception (`FRAME_SIZE` 128)
-or control precision (`FRAME_SKIP` 2) — the structural fresh-train levers.
+**Immediate recommended action:** drill the **fork** (the current 380 wall). Capture
+a state ~120 steps before the dead-end death off the best checkpoint, then resume —
+every episode starts at the decision so the delayed-trap signal becomes strong. Watch
+`lifeforce/best_score` for movement past 380. This also *validates the capture→drill
+loop* before we automate it (auto-curriculum, phase 2).
 
 ---
 
