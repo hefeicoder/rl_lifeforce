@@ -43,12 +43,25 @@ past it (confirmed by watching a replay).
    the agent now arrives **slow and controlled**, so a capture of the *approach*
    (`--before-death 120`) is finally meaningful. Drill it off the `lv1-speedcap_2`
    checkpoint and watch `best_score` for movement past 280.
-3. **Exploration** (`--ent-coef 0.03`) — untested as a deliberate lever; may help
-   escape the stuck strategy at the wall.
-4. **Perception** (`FRAME_SIZE` 84→128) — the gap is a few pixels at 84×84
-   grayscale; the agent may literally not resolve it. Expensive (fresh train,
-   ~9× cost at 256, so try 128). **Last resort**, only after 2–3 fail — but now the
-   leading suspect for the *second cause*, since loadout is ruled out.
+3. **Exploration — DONE; ruled out.** Resumed the 900k policy with curriculum +
+   raised entropy: `lv1-drill-explore_1` (`--ent-coef 0.03`) and `_2` (`0.05`).
+   `train/entropy_loss` confirmed the bump took effect (−2.4 → −2.63 at 0.03, −2.71
+   at 0.05 — more entropy), and training stayed healthy (`explained_variance` ~0.90,
+   `approx_kl` ~0.003, `reward/powerup` positive). **Still exactly 280, clear_rate
+   0.** So more exploration doesn't crack it either. **All three cheap levers
+   (loadout, curriculum/practice, exploration) are now exhausted — the blocker is
+   structural, not a reward/training-config problem.**
+
+   **Diagnostic before spending a fresh train:** watch the death at the gauntlet
+   (`python -m src.play --model <ckpt> --from-state states/<wall>.state
+   --deterministic`) and characterize *how* it dies — that picks lever 4 vs 5:
+4. **Perception** (`FRAME_SIZE` 84→128) — if it crashes into / clips a wall it
+   "should" see. At 84×84 the gap is a few pixels; downscaling from NES's 256-wide
+   may erase it. Fresh train, ~2.3× input area at 128 (the 9× figure was for 256).
+5. **Control precision** (`FRAME_SKIP` 4→2) — if it clearly *sees* the gap but
+   mistimes (overshoots, can't correct fast enough). At skip-4 the agent acts only
+   15×/sec; threading a narrowing gap may need finer timing than that can express.
+   Fresh train; episodes get longer (more decisions/sec) so slower wall-clock.
 
 **Immediate recommended action:** capture the gauntlet *approach* off
 `lv1-speedcap_2` (`--before-death 120`, agent now arrives slow), then resume-train
@@ -157,7 +170,10 @@ drilling still won't move it, escalate to perception (`FRAME_SIZE` 128).
 - **Does the loadout fix (no speed) break the gauntlet?** **Answered: no.** The
   hard cap fixed the loadout (`reward/powerup` positive, score doubled) but
   `best_score` stayed at ~280. Speed ruled out; gauntlet has a second cause.
-- **What IS the gauntlet blocker?** Open. Remaining suspects, now that loadout is
-  ruled out: (a) the approach isn't being drilled (earlier curriculum capture —
-  next experiment), (b) the gap is unresolvable at 84×84 (perception / `FRAME_SIZE`
-  128).
+- **What IS the gauntlet blocker?** Narrowed. Ruled out: loadout (speedcap_2),
+  curriculum/practice (speedcap_3 drilled the wall directly), exploration
+  (drill-explore at 0.03 and 0.05, entropy confirmed up). All cheap levers
+  exhausted → **structural.** Remaining suspects: (a) **perception** — gap
+  unresolvable at 84×84 (`FRAME_SIZE` 128), (b) **control precision** — gap needs
+  finer timing than skip-4 allows (`FRAME_SKIP` 2). Disambiguate by watching *how*
+  it dies before committing a fresh train.
