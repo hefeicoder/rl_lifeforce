@@ -93,15 +93,17 @@ MAX_SPEED = 2              # speed levels up to here are "good"; beyond = over-s
 REWARD_SPEED = 0.5         # bonus per speed level gained up to MAX_SPEED
 REWARD_OVERSPEED = -5.0    # penalty per speed level gained ABOVE MAX_SPEED (much heavier)
 
-# Forward-position reward (experimental, for the fork). Small per-step bonus scaled
-# by how far FORWARD (high x) the ship is. Rationale: the fork's dead-end channel
-# corners the ship to the far back (x~16) before death, so this pays LESS there — a
-# dense, EARLY "bad" signal (vs the late, discounted death) — and rewards the
-# front-rush survival line. NOTE: x_pos is SCREEN position, not level distance (the
-# level auto-scrolls). CAUTION: conflicts with the gauntlet-#1 lesson (front edge =
-# death there) — watch best_score for regression below 380. 0.0 disables.
-REWARD_XPOS = 0.0          # experiment done: at 0.02 it was negligible vs score and didn't
-                           # crack the fork; a meaningful weight breaks gauntlet #1. Disabled.
+# Forward-position reward (general; survival-arbitrated). Reward the ship for being
+# in the FRONT quarter of the screen. Rationale: "stay back" is mostly a HUMAN
+# reaction-time crutch; a machine can thread a deterministic level from the front by
+# adjusting Y, and being front keeps it ahead of closing walls. We keep this MILD and
+# let the survival-dominant reward ARBITRATE: the agent plays front where it's safe
+# (most of the level + the closing wall) and survival overrides where front kills
+# (gauntlet #1: front forfeits all future survival reward, so it stays back there on
+# its own). That yields LEARNED dynamic positioning — better than a hard-coded "back"
+# or "front". CAUTION: too large re-breaks gauntlet #1; watch best_steps. 0.0 disables.
+REWARD_XPOS = 0.05         # per-step bonus when in the front quarter
+X_FRONT_FRAC = 0.75        # "front 25%": reward when (x - min) / (max - min) >= this
 
 # --- Positional cap (action mask, like the speed cap) ------------------------
 # Hugging the leading (front/right) edge leaves no time to react to terrain and

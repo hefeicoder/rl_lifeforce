@@ -204,10 +204,14 @@ class LifeForceWrapper(gym.Wrapper):
         # 2b) power-ups: eat capsules, accumulate, spend (Missile/Option/Force Field)
         r_powerup = self._powerup_reward(ram)
 
-        # 2c) forward-position: small dense bonus for being forward (see config); the
-        # dead-end corners the ship to the back (low x), so this pays less there.
-        x_frac = (int(ram[C.ADDR_X_POS]) - C.X_POS_MIN) / (C.X_POS_MAX - C.X_POS_MIN)
-        r_xpos = C.REWARD_XPOS * max(0.0, min(1.0, x_frac))
+        # 2c) forward-position: mild per-step bonus for being in the FRONT quarter.
+        # General nudge toward front play (ahead of closing walls); the survival-
+        # dominant reward arbitrates where front kills (gauntlet #1) -> stays back there.
+        r_xpos = 0.0
+        if C.REWARD_XPOS:
+            x_frac = (int(ram[C.ADDR_X_POS]) - C.X_POS_MIN) / (C.X_POS_MAX - C.X_POS_MIN)
+            if x_frac >= C.X_FRONT_FRAC:
+                r_xpos = C.REWARD_XPOS
 
         total = r_score + r_alive + r_death + r_clear + r_powerup + r_xpos
         self._ep["score"] += r_score
