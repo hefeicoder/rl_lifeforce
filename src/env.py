@@ -218,6 +218,7 @@ class LifeForceWrapper(gym.Wrapper):
         self._ep["xpos"] += r_xpos
         if terminated or truncated:
             info["reward_components"] = dict(self._ep)
+            info["ep_steps"] = self._steps   # survival time = progress proxy (auto-scroller)
 
         return obs, total, terminated, truncated, self._augment(info, ram)
 

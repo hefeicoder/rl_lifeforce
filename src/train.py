@@ -58,6 +58,11 @@ class LifeForceStatsCallback(BaseCallback):
         self._comp = deque(maxlen=window)    # recent per-episode reward-component dicts
         self._best_score = 0                 # all-time max ABSOLUTE in-game score (progress marker)
         self._recent = deque(maxlen=window)  # recent end-of-episode absolute scores
+        # survival time (= distance in this auto-scroller). The cleaner progress metric
+        # once score is de-weighted (best_score stops tracking distance when the agent
+        # scores less per distance). best_steps rising = the agent is getting FURTHER.
+        self._best_steps = 0
+        self._recent_steps = deque(maxlen=window)
 
     def _on_step(self) -> bool:
         for info in self.locals.get("infos", []):
@@ -70,13 +75,19 @@ class LifeForceStatsCallback(BaseCallback):
                 sc = int(info.get("score", 0))   # absolute score — the save state preserves it,
                 self._recent.append(sc)          # so "best ever" rising past the wall (~2620)
                 self._best_score = max(self._best_score, sc)  # = a breakthrough, regardless of start
+                st = int(info.get("ep_steps", 0))             # survival time = distance (auto-scroller)
+                self._recent_steps.append(st)
+                self._best_steps = max(self._best_steps, st)
 
         self.logger.record("lifeforce/stage_clears", self._clears)
         if self._episodes:
             self.logger.record("lifeforce/clear_rate", self._clears / self._episodes)
         self.logger.record("lifeforce/best_score", self._best_score)        # all-time
+        self.logger.record("lifeforce/best_steps", self._best_steps)        # all-time furthest (distance)
         if self._recent:
             self.logger.record("lifeforce/recent_best_score", max(self._recent))  # current capability
+        if self._recent_steps:
+            self.logger.record("lifeforce/recent_best_steps", max(self._recent_steps))  # current furthest
         if self._comp:
             n = len(self._comp)
             for k in self._comp[0]:              # score, alive, death, clear, powerup
