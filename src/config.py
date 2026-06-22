@@ -60,9 +60,15 @@ ACTIVATE_BUTTON = "A"        # pressed when the activate head outputs 1
 # remaining reward, so staying alive is essential, and the only way to cash in on
 # being alive is to SCORE. Score is therefore the main positive signal, which
 # keeps play active and fun to watch. The alive bonus is just a small dense nudge.
-REWARD_SCORE_SCALE = 1.0    # multiplier on base score reward (raise to weight scoring more)
-REWARD_ALIVE = 0.02         # small dense survival nudge (NOT the main survival driver)
-REWARD_DEATH = 5.0          # penalty subtracted when a life is lost
+# DE-BAITED reward (survival-dominant). The fork's dead-end channel dangles an enemy
+# (immediate score) and the dead-end is off-screen -> with score-dominant reward the
+# agent takes the bait. Fix: make SURVIVAL the dominant signal and score minor, so a
+# kill right before dying can't outweigh surviving longer (= getting further; in this
+# auto-scroller "progress" == survival time). Death's real cost is forfeiting all
+# future survival reward (terminated-on-death), with REWARD_DEATH as an extra nudge.
+REWARD_SCORE_SCALE = 0.05   # score heavily down-weighted so the kill-bait is negligible
+REWARD_ALIVE = 0.2          # survival is now the dominant, dense signal (the "progress" proxy)
+REWARD_DEATH = 10.0         # bigger explicit death penalty (forfeiture is the main cost)
 REWARD_CLEAR = 100.0        # bonus for clearing the stage (the goal)
 END_ON_LIFE_LOSS = True     # the real "survival is #1" lever: death ends the episode
 MAX_EPISODE_STEPS = 2000    # agent-step time limit (post frame-skip)
