@@ -94,7 +94,8 @@ REWARD_OVERSPEED = -5.0    # penalty per speed level gained ABOVE MAX_SPEED (muc
 # front-rush survival line. NOTE: x_pos is SCREEN position, not level distance (the
 # level auto-scrolls). CAUTION: conflicts with the gauntlet-#1 lesson (front edge =
 # death there) — watch best_score for regression below 380. 0.0 disables.
-REWARD_XPOS = 0.02
+REWARD_XPOS = 0.0          # experiment done: at 0.02 it was negligible vs score and didn't
+                           # crack the fork; a meaningful weight breaks gauntlet #1. Disabled.
 
 # --- Positional cap (action mask, like the speed cap) ------------------------
 # Hugging the leading (front/right) edge leaves no time to react to terrain and
@@ -112,11 +113,14 @@ X_POS_MAX = 232
 # by forbidding front positioning — so we're testing cap-off + higher exploration to see
 # if the agent can find a passing line the cap was hiding. Fallback if gauntlet #1
 # regresses: score-gate the cap (on for score < ~250, off at the fork).
-X_SAFE_FRONT = None
+X_SAFE_FRONT = None        # cap OFF (no capability limit). Hope: at 128 the agent perceives the
+                           # gauntlet-#1 hazard well enough to stay back on its own. Risk: a fresh
+                           # run may re-stall at the front-hug trap (~280); if so, the cap is needed.
 
 # --- Preprocessing -----------------------------------------------------------
 FRAME_SKIP = 4
-FRAME_SIZE = 84             # bullets are small; bump this if the agent can't "see" threats
+FRAME_SIZE = 128            # 84 aliased the trap-fork with similar coral scenes; 128 (~2.3x
+                            # detail) to let the CNN distinguish the fork landmark. Fresh train.
 FRAME_STACK = 4
 
 # --- PPO / training ----------------------------------------------------------
