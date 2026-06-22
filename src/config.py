@@ -113,9 +113,7 @@ X_POS_MAX = 232
 # by forbidding front positioning — so we're testing cap-off + higher exploration to see
 # if the agent can find a passing line the cap was hiding. Fallback if gauntlet #1
 # regresses: score-gate the cap (on for score < ~250, off at the fork).
-X_SAFE_FRONT = None        # cap OFF (no capability limit). Hope: at 128 the agent perceives the
-                           # gauntlet-#1 hazard well enough to stay back on its own. Risk: a fresh
-                           # run may re-stall at the front-hug trap (~280); if so, the cap is needed.
+X_SAFE_FRONT = None        # cap OFF — let the model learn positioning itself (no hand-tuned crutch).
 
 # --- Preprocessing -----------------------------------------------------------
 FRAME_SKIP = 4
