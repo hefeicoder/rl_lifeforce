@@ -55,6 +55,20 @@ def replay(env, frontier, actions):
     return steps
 
 
+def advance(env, frontier, model, n):
+    """Run the GREEDY policy from `frontier` for up to n steps; return the emulator
+    state there. This is the policy's near-failure point -- the effective frontier we
+    search from, so random exploration doesn't waste itself dying in the run-up."""
+    env.unwrapped.initial_state = frontier
+    obs, _ = env.reset()
+    for _ in range(n):
+        a, _ = model.predict(obs, deterministic=True)
+        _, _, term, trunc, _ = env.step(a)
+        if term or trunc:
+            break
+    return env.unwrapped.em.get_state()
+
+
 def rollout(env, frontier, model, bridge_steps, macro, eps, cont_cap, rng):
     """Reset to `frontier`, run a `bridge_steps`-long bridge (each macro: with prob
     `eps` a random action, else a sampled policy action, held `macro` decisions),
@@ -113,6 +127,9 @@ def main():
     p.add_argument("--epsilon", type=float, default=0.5,
                    help="prob a bridge macro is RANDOM vs a (stochastic) policy action")
     p.add_argument("--continuation", type=int, default=600, help="greedy-policy handoff step cap")
+    p.add_argument("--margin", type=int, default=20,
+                   help="search from (baseline - margin) steps in, i.e. policy drives the run-up to "
+                        "~margin before its failure, then we search there. Vary it to test lead times.")
     p.add_argument("--seed", type=int, default=0)
     args = p.parse_args()
 
@@ -130,27 +147,34 @@ def main():
     else:
         print(f"determinism OK (fixed bridge survived {d1} steps, reproducible)")
 
-    # --- baseline: greedy policy alone from the frontier (the wall we must beat) ---
-    base = rollout(env, frontier, model, 0, args.macro, 0.0, args.continuation, rng)
-    baseline = base["steps"]
-    print(f"baseline (policy from frontier): {baseline} steps (cleared={base['cleared']})\n")
+    # --- baseline: greedy policy alone from the loaded frontier ---
+    baseline = rollout(env, frontier, model, 0, args.macro, 0.0, args.continuation, rng)["steps"]
+    print(f"baseline (policy from loaded frontier): {baseline} steps")
 
-    # --- search ---
+    # --- advance to the policy's near-failure point; search from THERE (no run-up) ---
+    adv = max(0, baseline - args.margin)
+    effective = advance(env, frontier, model, adv)
+    local = rollout(env, effective, model, 0, args.macro, 0.0, args.continuation, rng)["steps"]
+    print(f"advanced {adv} steps (margin {args.margin}); local policy baseline from there: {local}\n")
+
+    # --- search from the effective frontier ---
     best = {"steps": -1, "cleared": False}
     t0 = time.perf_counter()
     for i in range(args.candidates):
-        r = rollout(env, frontier, model, args.bridge_steps, args.macro, args.epsilon, args.continuation, rng)
+        r = rollout(env, effective, model, args.bridge_steps, args.macro, args.epsilon, args.continuation, rng)
         if (r["cleared"], r["steps"]) > (best["cleared"], best["steps"]):
             best = {**r, "bridge": list(r["b_acts"])}
-            print(f"  cand {i}: NEW BEST {r['steps']} steps  (+{r['steps']-baseline} vs baseline, cleared={r['cleared']})")
-        if (i + 1) % 100 == 0:
+            print(f"  cand {i}: NEW BEST {r['steps']} (+{r['steps']-local} vs local, "
+                  f"total~{adv+r['steps']}, cleared={r['cleared']})")
+        if (i + 1) % 200 == 0:
             print(f"  ... {i+1}/{args.candidates}  best={best['steps']}  ({time.perf_counter()-t0:.0f}s)")
 
-    gain = best["steps"] - baseline
-    print(f"\nbest {best['steps']} steps vs baseline {baseline}  (+{gain}, cleared={best['cleared']})")
+    gain = best["steps"] - local
+    print(f"\nbest {best['steps']} from effective frontier vs local {local}  "
+          f"(+{gain}, total~{adv+best['steps']}, cleared={best['cleared']})")
     if gain <= 0:
-        print("No survivor beyond baseline. Try: more --candidates, longer/shorter --bridge-steps, "
-              "higher --epsilon, a different --state (lead time), or CEM.")
+        print("No survivor beyond local baseline. Try: different --margin (lead time), "
+              "more --candidates, higher --epsilon/--macro, or CEM.")
         env.close()
         return
 
