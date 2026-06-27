@@ -73,7 +73,10 @@ def rollout(env, frontier, model, bridge_steps, macro, eps, cont_cap, rng):
                 hold_act = env.action_space.sample()        # real exploration
             else:
                 hold_act, _ = model.predict(obs, deterministic=False)
-            held = macro
+            # variable hold: short adjustments .. SUSTAINED moves. Crucial -- a
+            # front-rush needs many consecutive RIGHTs; with a fixed small macro,
+            # random can't line those up, but a single long-held RIGHT macro can.
+            held = int(rng.integers(2, macro + 1))
         b_obs.append(np.asarray(obs, dtype=np.uint8))
         b_acts.append(np.asarray(hold_act))
         obs, _, term, trunc, info = env.step(hold_act)
@@ -106,7 +109,7 @@ def main():
     p.add_argument("--candidates", type=int, default=1000)
     p.add_argument("--bridge-steps", type=int, default=60, dest="bridge_steps",
                    help="bridge length in agent-steps; must cover the obstacle maneuver window")
-    p.add_argument("--macro", type=int, default=3, help="hold each chosen action this many decisions")
+    p.add_argument("--macro", type=int, default=12, help="MAX hold length; each macro holds random 2..macro decisions")
     p.add_argument("--epsilon", type=float, default=0.5,
                    help="prob a bridge macro is RANDOM vs a (stochastic) policy action")
     p.add_argument("--continuation", type=int, default=600, help="greedy-policy handoff step cap")
