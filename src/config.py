@@ -89,7 +89,11 @@ REWARD_CAPSULE = 0.5        # ate a capsule (cursor advanced) — currency for u
 REWARD_MISSILE = 4.0        # acquired Missile (top priority)
 REWARD_OPTION = 3.0         # acquired an Option (max 2)
 REWARD_FORCEFIELD = 2.0     # gained Force Field / refilled shield
-MAX_SPEED = 2              # speed levels up to here are "good"; beyond = over-speeding
+MAX_SPEED = 4              # raised 2->4: the closing wall needs a FAST back->front rush
+                           # ("fly front soon"), and speed 2 was too slow to survive it, so the
+                           # agent stayed back there. Speed-cap was an old over-speed-in-gauntlet
+                           # crutch that de-bait likely dissolved. Now de-bait/survival arbitrates
+                           # speed too (over-speeding where it kills -> death -> learns to time it).
 REWARD_SPEED = 0.5         # bonus per speed level gained up to MAX_SPEED
 REWARD_OVERSPEED = -5.0    # penalty per speed level gained ABOVE MAX_SPEED (much heavier)
 
