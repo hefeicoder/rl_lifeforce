@@ -63,6 +63,18 @@ class LifeForceStatsCallback(BaseCallback):
         # scores less per distance). best_steps rising = the agent is getting FURTHER.
         self._best_steps = 0
         self._recent_steps = deque(maxlen=window)
+        # true furthest screen-x reached (forward-progress proxy at the camp-left wall).
+        # Pair with steps: max_x up + steps recovering = basin escape; max_x up but
+        # steps collapsing = ratchet coeff too high.
+        self._best_max_x = 0
+        self._recent_max_x = deque(maxlen=window)
+        # SAME metrics but only for curriculum-start episodes (e.g. l3_wall). With
+        # curriculum_mix<1, the full-level starts survive ~880 steps and pollute the
+        # aggregate best_steps; this bucket is the clean drill-section signal.
+        self._curr_steps = deque(maxlen=window)
+        self._curr_max_x = deque(maxlen=window)
+        self._curr_best_steps = 0
+        self._curr_best_max_x = 0
 
     def _on_step(self) -> bool:
         for info in self.locals.get("infos", []):
@@ -78,6 +90,14 @@ class LifeForceStatsCallback(BaseCallback):
                 st = int(info.get("ep_steps", 0))             # survival time = distance (auto-scroller)
                 self._recent_steps.append(st)
                 self._best_steps = max(self._best_steps, st)
+                mx = int(info.get("max_x", 0))                # true furthest screen-x this episode
+                self._recent_max_x.append(mx)
+                self._best_max_x = max(self._best_max_x, mx)
+                if info.get("curriculum_start"):              # drill-section episodes only
+                    self._curr_steps.append(st)
+                    self._curr_max_x.append(mx)
+                    self._curr_best_steps = max(self._curr_best_steps, st)
+                    self._curr_best_max_x = max(self._curr_best_max_x, mx)
 
         self.logger.record("lifeforce/stage_clears", self._clears)
         if self._episodes:
@@ -88,6 +108,15 @@ class LifeForceStatsCallback(BaseCallback):
             self.logger.record("lifeforce/recent_best_score", max(self._recent))  # current capability
         if self._recent_steps:
             self.logger.record("lifeforce/recent_best_steps", max(self._recent_steps))  # current furthest
+        if self._recent_max_x:
+            self.logger.record("lifeforce/best_max_x", self._best_max_x)               # all-time furthest x
+            self.logger.record("lifeforce/recent_max_x",
+                               sum(self._recent_max_x) / len(self._recent_max_x))       # recent mean max_x
+        if self._curr_steps:   # clean drill-section (curriculum-start) signal
+            self.logger.record("curr/recent_best_steps", max(self._curr_steps))
+            self.logger.record("curr/best_steps", self._curr_best_steps)
+            self.logger.record("curr/recent_max_x", sum(self._curr_max_x) / len(self._curr_max_x))
+            self.logger.record("curr/best_max_x", self._curr_best_max_x)
         if self._comp:
             n = len(self._comp)
             for k in self._comp[0]:              # score, alive, death, clear, powerup
@@ -97,11 +126,23 @@ class LifeForceStatsCallback(BaseCallback):
         return True
 
 
-def build_vec_env(n_envs, load_norm=None):
+def build_vec_env(n_envs, load_norm=None, curriculum_glob=None, curriculum_mix=None,
+                  frame_skip=None, reward_score_scale=None, reward_alive=None,
+                  reward_death=None, reward_xpos=None, x_front_frac=None,
+                  reward_xmax=None):
     # Order: SubprocVecEnv -> VecMonitor (logs RAW episode returns) -> VecNormalize
     # (normalizes only what the algorithm trains on; raw reward_components in info
     # are untouched, so TensorBoard reward/* stays interpretable).
-    base = VecMonitor(SubprocVecEnv([make_thunk(seed=i) for i in range(n_envs)]))
+    base = VecMonitor(SubprocVecEnv([
+        make_thunk(seed=i, curriculum_glob=curriculum_glob,
+                   curriculum_mix=curriculum_mix, frame_skip=frame_skip,
+                   reward_score_scale=reward_score_scale,
+                   reward_alive=reward_alive,
+                   reward_death=reward_death,
+                   reward_xpos=reward_xpos,
+                   x_front_frac=x_front_frac,
+                   reward_xmax=reward_xmax)
+        for i in range(n_envs)]))
     if not C.NORM_REWARD:
         return base
     if load_norm and os.path.exists(load_norm):
@@ -155,6 +196,26 @@ def main():
                    help="rollout length per env (default config.N_STEPS); fresh runs only")
     p.add_argument("--n-epochs", type=int, default=None, dest="n_epochs",
                    help="PPO passes per rollout (default config.N_EPOCHS)")
+    p.add_argument("--curriculum-glob", default=None, dest="curriculum_glob",
+                   help="glob for curriculum start-states (default: all states/*.state); "
+                        "e.g. 'states/l3_wall.state' to drill ONE section")
+    p.add_argument("--curriculum-mix", type=float, default=None, dest="curriculum_mix",
+                   help="P(episode starts from a curriculum state vs the level start); "
+                        f"default C.CURRICULUM_MIX={C.CURRICULUM_MIX}")
+    p.add_argument("--frame-skip", type=int, default=None, dest="frame_skip",
+                   help=f"override env frame-skip for this run (default C.FRAME_SKIP={C.FRAME_SKIP})")
+    p.add_argument("--reward-score-scale", type=float, default=None,
+                   help=f"override score-delta reward scale (default {C.REWARD_SCORE_SCALE})")
+    p.add_argument("--reward-alive", type=float, default=None,
+                   help=f"override per-step alive reward (default {C.REWARD_ALIVE})")
+    p.add_argument("--reward-death", type=float, default=None,
+                   help=f"override life-loss penalty magnitude (default {C.REWARD_DEATH})")
+    p.add_argument("--reward-xpos", type=float, default=None,
+                   help=f"override forward-position per-step reward (default {C.REWARD_XPOS})")
+    p.add_argument("--x-front-frac", type=float, default=None,
+                   help=f"override forward-position reward gate (default {C.X_FRONT_FRAC})")
+    p.add_argument("--reward-xmax", type=float, default=None,
+                   help=f"override episode-local x-ratchet reward scale (default {C.REWARD_XMAX})")
     p.add_argument("--gamma", type=float, default=None,
                    help="discount factor (default config.GAMMA); raise (e.g. 0.997) to "
                         "propagate delayed payoffs further back (e.g. a fork's reward)")
@@ -173,7 +234,34 @@ def main():
 
     # On resume, load that checkpoint's normalization stats from beside it.
     load_norm = vecnorm_for(args.resume) if args.resume else None
-    venv = build_vec_env(args.n_envs, load_norm=load_norm)
+    venv = build_vec_env(args.n_envs, load_norm=load_norm,
+                         curriculum_glob=args.curriculum_glob,
+                         curriculum_mix=args.curriculum_mix,
+                         frame_skip=args.frame_skip,
+                         reward_score_scale=args.reward_score_scale,
+                         reward_alive=args.reward_alive,
+                         reward_death=args.reward_death,
+                         reward_xpos=args.reward_xpos,
+                         x_front_frac=args.x_front_frac,
+                         reward_xmax=args.reward_xmax)
+    if args.curriculum_glob or args.curriculum_mix is not None:
+        import glob as _glob
+        pat = args.curriculum_glob or os.path.join(C.CURRICULUM_DIR, "*.state")
+        mix = C.CURRICULUM_MIX if args.curriculum_mix is None else args.curriculum_mix
+        print(f"Curriculum: mix={mix}  states={_glob.glob(pat)}")
+    if args.frame_skip is not None:
+        print(f"Frame skip override: {args.frame_skip} (config default {C.FRAME_SKIP})")
+    reward_overrides = {
+        "score_scale": args.reward_score_scale,
+        "alive": args.reward_alive,
+        "death": args.reward_death,
+        "xpos": args.reward_xpos,
+        "x_front_frac": args.x_front_frac,
+        "xmax": args.reward_xmax,
+    }
+    reward_overrides = {k: v for k, v in reward_overrides.items() if v is not None}
+    if reward_overrides:
+        print(f"Reward overrides: {reward_overrides}")
 
     device = resolve_device(args.device)
     print(f"Device: {device}")

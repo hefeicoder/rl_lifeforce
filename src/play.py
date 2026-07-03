@@ -74,12 +74,14 @@ def main():
                    help="live window width:height ratio (0 = keep native, ~square)")
     p.add_argument("--from-state", default=None, dest="from_state",
                    help="start every episode from a saved .state (e.g. states/l1_gauntlet.state)")
+    p.add_argument("--frame-skip", type=int, default=None, dest="frame_skip",
+                   help=f"override env frame-skip for playback (default config={C.FRAME_SKIP})")
     p.add_argument("--out", default=os.path.join(C.VIDEO_DIR, "play.mp4"))
     args = p.parse_args()
 
     live = args.render == "human"
     record_av = args.audio          # capture every frame's video+audio when sound is wanted
-    env = make_env(render_mode="rgb_array", record_av=record_av)
+    env = make_env(render_mode="rgb_array", record_av=record_av, frame_skip=args.frame_skip)
     if args.from_state:             # start from a captured curriculum/wall state
         with gzip.open(args.from_state, "rb") as fh:
             env.unwrapped.initial_state = fh.read()
@@ -133,8 +135,12 @@ def main():
             done = done or term or trunc or quit_flag["q"]
         cleared = info.get("stage_cleared", False)
         cleared_count += int(cleared)
+        mean_x = info.get("mean_x")
+        mean_x_s = "n/a" if mean_x is None else f"{mean_x:.1f}"
         print(f"ep {ep}: score={info.get('score')} steps={steps} "
-              f"reward={ep_reward:.1f} max_x={info.get('x_pos')} "
+              f"reward={ep_reward:.1f} "
+              f"max_x={info.get('max_x')} terminal_x={info.get('terminal_x')} "
+              f"mean_x={mean_x_s} "
               f"{'CLEARED LEVEL 1' if cleared else 'did not clear'}")
         if quit_flag["q"]:
             break

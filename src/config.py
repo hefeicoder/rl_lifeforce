@@ -106,8 +106,30 @@ REWARD_OVERSPEED = -5.0    # penalty per speed level gained ABOVE MAX_SPEED (muc
 # (gauntlet #1: front forfeits all future survival reward, so it stays back there on
 # its own). That yields LEARNED dynamic positioning — better than a hard-coded "back"
 # or "front". CAUTION: too large re-breaks gauntlet #1; watch best_steps. 0.0 disables.
-REWARD_XPOS = 0.05         # per-step bonus when in the front quarter
-X_FRONT_FRAC = 0.75        # "front 25%": reward when (x - min) / (max - min) >= this
+REWARD_XPOS = 0.05         # per-step bonus when in/forward of the X_FRONT_FRAC line
+# Lowered 0.75 -> 0.25 (x >= ~69): the ratchet got the ship to TRY forward (max_x
+# 29->82) but it darts out and RETREATS (mean_x flat ~30, terminal_x ~16). This
+# standing "hold a forward screen position" bonus rewards STAYING forward, not just
+# touching it — survival still arbitrates where forward kills. Generic, not L3-specific.
+X_FRONT_FRAC = 0.25        # reward when (x - min) / (max - min) >= this
+
+# Furthest-progress "ratchet" reward (general; survival-arbitrated). EPISODE-LOCAL:
+# reward only NEW ground beyond the furthest x_frac reached SO FAR THIS EPISODE,
+# i.e. REWARD_XMAX * max(0, x_frac - best_x_frac_this_episode), updating best.
+# Rationale: at the L3 cave/flame wall the policy pokes right, RETREATS, and dies
+# left, so plain per-step occupancy bait-camps the front and plain x-DELTA telescopes
+# to ~0 (it claws back the gains on retreat). The ratchet telescopes to (max_reached -
+# start): it pays for the EXCURSION, never claws back on retreat, and doesn't reward
+# sitting at the front (only BEATING your own best does). Episode-local so every worker
+# re-earns the forward path from the start state (a global "ever reached" signal would
+# vanish after one worker found it). Survival still arbitrates: if the new ground is
+# lethal, the death penalty + lost alive reward overrides. 0.0 disables.
+# Sizing: measured valley ~15 lost steps ~= 3.0 alive; greedy max x_frac 0.065 ->
+# stochastic 0.22 is ~0.16 normalized, so coeff 30 -> ~4.8 for the excursion (> 3.0).
+# Watch true max_x AND ep_steps: max_x up + steps recovering = basin escape; max_x up
+# but steps collapsing = coeff too high (lower it or add a cap).
+REWARD_XMAX = 30.0         # per-unit-of-new-ground bonus (episode-local ratchet)
+X_RATCHET_JUMP_CAP = 0.25  # dx_frac above this = implausible snap: advance best, pay nothing
 
 # --- Positional cap (action mask, like the speed cap) ------------------------
 # Hugging the leading (front/right) edge leaves no time to react to terrain and
