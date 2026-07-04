@@ -36,3 +36,4 @@ ram_dumps/
 
 # curriculum save states (ROM-derived; regenerate via tools/capture_state)
 states/
+demos/

@@ -27,10 +27,17 @@ own ROM, and extending the game integration (finding RAM addresses) yourself.
   + power-up reward shaping), PPO with stability fixes (`target_kl`, LR annealing,
   reward normalization), TensorBoard metrics, and a live/video player.
 - ✅ **Save-state curriculum** — capture a hard spot, auto-mix it into training.
-- 🔜 **Clearing Level 1** — the agent reliably reaches a mid-stage terrain
-  "gauntlet" but doesn't yet thread it; iterating on curriculum, loadout
-  (no speed), and exploration. (The bundled 10M-step benchmark never cleanly
-  cleared either — this is hard.)
+- ✅ **Go-explore loop** — plan-with-search → imitate → consolidate;
+  broke the long-standing mid-stage plateau and keeps compounding (see
+  [Training strategy](#training-strategy-the-go-explore-loop)). Survival from
+  the level start: **891 → 1805 steps** (~2 min of play), >2× the baseline.
+- ✅ **Anti-jitter ("calm") recipe** — measured the policy vibrating (64% of
+  steps change movement direction); added movement/churn reward penalties and
+  HOLD to the search vocabulary. Result: churn 64→41%, survival UP, and —
+  decisively — **skill corridors no longer erode during PPO training**, the
+  failure that used to block precision sections.
+- 🔜 **Clearing Level 1** — current frontier ~step 1805, plausibly nearing the
+  stage-1 boss (watch for the auto-scroll clock stopping = arena).
 
 ## Docs
 
@@ -143,6 +150,117 @@ Most knobs live in [`src/config.py`](src/config.py): reward weights (`REWARD_*`)
 `CURRICULUM_MIX`, PPO hyperparameters, `FRAME_SIZE`. Handy CLI overrides:
 `--ent-coef` (raise it, e.g. `0.03`, for more exploration to break a plateau),
 `--save-freq`, `--timesteps`, `--device`.
+
+## Training strategy: the go-explore loop
+
+PPO alone plateaus on this game: the hard sections need long precise maneuvers
+(a ~5⁻⁷⁰ event under random exploration), and the safe "retreat and camp" habit
+is a local optimum PPO's clipped updates won't jump out of. The fix is a loop
+that separates *discovering* a skill from *learning* it — after
+[Go-Explore](https://arxiv.org/abs/1901.10995) (explore until solved, then
+robustify). Life Force auto-scrolls, so **steps survived = level progress**;
+each cycle pushes the policy's death point deeper:
+
+1. **Capture** the frontier — run the best policy deterministically, save
+   emulator states ~120/80/40 steps before its death
+   (`tools/capture_frontier_states.py`). Enter the search at the bd80 state:
+   bd40 is often already inside a *forced* corridor (every deviation dies),
+   and bd120 wastes script budget on approach terrain. Never give the beam a
+   `--name` equal to a captured state's name (its handoff save would
+   overwrite the capture).
+2. **Search** — beam search over scripted move-segments from that state, scored
+   by total survival, winners verified by 2 independent replays
+   (`tools/segment_search.py --beam 16 --moves 4 6 8 1 2 0 --durations 2 4 8`).
+   **HOLD (move 0) belongs in the vocabulary** — stay-put lines are the
+   noise-tolerant encoding of precision sections (the alternative the search
+   finds otherwise is up/down oscillation, which trains jitter) — but a wider
+   beam (16) must come with it or the extra branching dilutes coverage.
+   Deterministic seed → killed runs re-tread for free, so extending
+   `--rounds`/`--script-cap` resumes a search. Planning, not learning — it
+   finds the needle PPO never would.
+3. **Seed** (only if the found script is long, ≥~30 steps) — behavior-clone the
+   demo into the policy, ~20 epochs (`tools/self_imitation.py`). Skip for tiny
+   dodges: BC on a handful of frames distorts more than it teaches (dataset
+   SIZE, not epoch count, is what constrains BC quality). Probe transfer from
+   the true lead-in state before proceeding.
+4. **Consolidate ×2** — PPO at `--curriculum-mix 0.3` (70% true level starts,
+   30% spread over the new lead-in + every previous hazard's lead-in) **with
+   the anti-jitter penalties on** (`--reward-move-cost 0.05 --reward-churn 0.2
+   --ent-coef 0.015`). Two 500k rounds. There is no separate "drill" stage
+   anymore — it was the most erosion-prone step, and the calm recipe makes it
+   unnecessary.
+5. **Sweep, never trust `final`** — evaluate every checkpoint on all hazard
+   probes + the full level + churn%/HOLD%; the winner is frequently mid-run.
+   Crown it, go to 1.
+
+Division of labor: **search discovers, BC implants, PPO robustifies, curriculum
+retains, consolidation unifies, sweeps select.** Each cycle ≈ 30–60 min on an
+M-series Mac and has gained +60 to +300 steps of progress.
+
+**Why the anti-jitter penalties are load-bearing:** the untreated policy
+changed movement direction on 64% of steps (HOLD just 7%) — free vibration
+plus PPO's entropy bonus paying for spread-out actions. Beyond looking bad,
+jitter made noisy training rollouts die inside precision corridors, so PPO
+*unlearned* exactly the skills BC implanted (measured: corridor probes
+collapsing 490→90 within 300k steps, three different seeds). With movement
+costed (churn 64→41%, HOLD 7→37%) the corridors stopped eroding entirely —
+and full-level survival went UP (1736 → 1805). Dose ceiling measured: churn
+0.3 + entropy 0.01 eventually collapses into hold-forever; keep churn ≤0.2
+during skill formation.
+
+Session-by-session history and the measured failure modes (BC on 4-frame
+demos, GREEDY moves in the beam vocab, HOLD without a wider beam, cold
+frame-stack on state reload, the beam-name/state-name collision) live in
+[`docs/go-explore-l3-progress.md`](docs/go-explore-l3-progress.md); live run
+state lives in `RESUME.md`.
+
+### What each stage does to the policy
+
+There is **one policy network** (CNN feature extractor + action head + value
+head); every stage below rewrites the *same weights* — checkpoints are just
+snapshots. The stages differ in **where the gradient comes from**, and
+therefore in what property each one buys:
+
+| stage | gradient source | effect on the policy |
+|---|---|---|
+| Search | none (pure emulator planning) | nothing — produces a *verified demo*, i.e. data, not learning |
+| Seed (BC) | supervised loss on demo (frame → action) pairs | tilts action logits so the demo's moves become the greedy choice in demo-like states — implants a maneuver exploration would never find. Side effect: shared CNN features bend elsewhere too, temporarily breaking unrelated skills |
+| ~~Drill (PPO, `mix 1.0`)~~ **retired** | reward, episodes start at hazards only | was: robustify the maneuver in isolation. Measured to be the most erosion-prone stage (its noisy rollouts died in precision corridors and unlearned them); the calm recipe's consolidation absorbs its job |
+| Consolidate (PPO, `mix 0.3`) | reward, 70% of episodes from the true level start | stitches the specialist skills into one continuous cold-start run; rebuilds whatever BC/drill broke; the 30% hazard starts keep the skills from washing out |
+| Sweep | none (deterministic evaluation) | selects, doesn't train: every checkpoint is scored on all hazard probes + the full level. Skills peak and wash out at different times mid-run, so **`final` is usually not the best checkpoint** |
+
+Coaching analogy: search = the coach working out the move on the whiteboard;
+BC = the athlete copying the demonstrated move; drill = repping it in isolation
+until it survives variation; consolidation = integrating it into the full
+routine; sweep = reviewing the tape and picking the best performance rather
+than assuming the last take was it.
+
+### Stage budgets and exit criteria (measured)
+
+| stage | data consumed | duration | exit test |
+|---|---|---|---|
+| Search | 120–160 rollouts/round (beam 8 × vocab); 13 rounds ≈ 2k rollouts, hard sections up to ~7k | 8–35 min | plan beats greedy baseline by **≥30 steps** AND replays 2/2 from fresh reloads; pinned at +0 after ~13 rounds → escalate (finer `--durations`, closer start, more `--rounds`), don't wait |
+| Seed (BC) | dataset = demo frames (76–267 examples); 20 epochs ≈ **20–100 gradient updates** | seconds | loss converged (~0.01–0.2) AND greedy probe from the hazard start clearly passes the death the demo dodges; demo <~30 steps → skip stage |
+| Consolidate ×2 | **2×500k env steps** (mix 0.3, anti-jitter penalties on) | ~22 min | sweep shows full-level ≥ previous flagship with all hazard probes above bar AND corridor probes non-eroding across the run |
+| Sweep | no training; ~55 deterministic eval rollouts (11 ckpts × probes + full level) | 2–4 min | crown the best-balanced checkpoint |
+
+Full cycle ≈ **1–1.2M env steps + a few thousand search rollouts + <100 BC
+updates ≈ 30–45 min**. Two properties worth noting: the information economics
+are lopsided (BC's ~100 supervised updates on verified examples implant what
+PPO's 500k steps can't; PPO's 500k steps robustify what BC can't) — and every
+exit criterion is an **evaluation, not a step count**. The step budgets are
+generous envelopes; the gate is always a deterministic probe. A cycle can
+complete all its budgets while failing every exit test (see the step-1736
+gauntlet), and only the probes catch it.
+
+Two measured caveats that motivate the stage boundaries: BC and PPO can
+*oppose* each other — if a discovered corridor has near-zero action tolerance,
+PPO's own noisy rollouts die in it and its gradient unlearns exactly what BC
+implanted (see the step-1736 gauntlet in the progress doc; the fix under test
+is pooling several demo *variants* into one BC dataset so nearby states are
+also covered). And BC dose must match demo size — 20 epochs on a 4-frame demo
+distorts far more than it teaches, so tiny dodges skip BC entirely and let the
+drill's exploration find them.
 
 ## How it works (design)
 
