@@ -976,9 +976,34 @@ formation. Strategic hypothesis for the gauntlet: low-churn training rollouts
 stay near the deterministic line, which may finally let the corridor
 robustify instead of eroding.
 
+### Cycle 7 (step-1750 death, calm base) — EROSION BEATEN, first past 1800
+
+The full calm-recipe cycle, validating all three anti-jitter upgrades at once:
+
+- bd40 beam: corridor already FORCED at step 1710 (any 2-step deviation dies
+  at 13 vs greedy's 39) — dodge must start earlier. bd80 was the entry.
+- **bd80 beam (HOLD vocab + beam 16): +107 verified, script ~1/3 pure HOLD**
+  (`UPx4 > HOLDx8 > ... > HOLDx8 > ... HOLDx2 > DOWNx4`) — the stay-put
+  solution is real once the beam is wide enough to keep HOLD lines alive.
+- Gotcha (burned): beam `--name` must never equal a captured state name —
+  the handoff overwrote the bd80 lead-in and silently corrupted BC probes.
+  Lead-ins re-captured as `l3_c1750_*`. True probes: BC 20ep = 77 vs base 54
+  (5/10ep worse — dataset SIZE, not epoch count, is the BC constraint).
+- **Consolidation from the BC seed WITH penalties during formation
+  (move 0.05 / churn 0.2, ent 0.015, no drill stage): THE CORRIDOR DID NOT
+  ERODE** — probe held 72-130 across two full 500k runs (cycle-6 corridors
+  collapsed 490→90 within 300k). The erosion mechanism (noisy rollouts die
+  off-line → avoidance) is confirmed by its cure (calm rollouts).
+
+**NEW FLAGSHIP: `checkpoints/l3-calm-cons2/lifeforce_ppo_final.zip` — 1753
+steps / score 1212 / churn 41% / corridor 109 / x120 at cap; the 500k ckpt
+holds the survival record: 1805 steps.**
+
 **Session 7 flagship progression: 891/190 → 1736/1314 (go-explore cycles 1–5)
-→ 1750/1311 (anti-jitter)**; the sixth hazard's solution is banked (4 verified
-demos + BC6 tube seed) awaiting the calm-base re-attempt.
+→ 1750/1311 (anti-jitter) → 1753-1805 (cycle 7, calm recipe)** — >2× the
+session-start baseline. Standard recipe going forward: beam-with-HOLD
+(beam 16, fine durations, bd80-depth entry) → BC 20ep → consolidate x2 with
+penalties (no drill) → sweep.
 
 ## Artifacts produced this session
 

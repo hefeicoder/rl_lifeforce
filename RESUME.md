@@ -226,16 +226,51 @@ Dose-response record (full-level trajectory, deterministic):
 | calm2 (0.05/0.2, ent .015) | 57.1% | 19.1% | 1715 |
 | calm3 (0.05/0.3, ent .01) | 47.6% | 29.1% | **1750** |
 
-NEXT STEPS:
-1. User eyeball test: watch calm3-500k live, esp. the web section.
-2. Make `--reward-move-cost 0.05 --reward-churn 0.2` standard in future
-   drills/consolidations (0.2 not 0.3 during skill formation — leave margin
-   below the collapse ceiling).
-3. Re-attempt the step-1736 gauntlet from the CALM base: capture fresh
-   frontier states from calm3-500k's death (~step 1750), beam (fine durations,
-   bd40-style close start), BC ensemble if needed, drill+consolidate WITH the
-   penalties on. Hypothesis: a low-churn policy's rollouts stay near its
-   deterministic line → the corridor finally robustifies instead of eroding.
+User eyeball test PASSED ("looks good, died at another pinch point").
+
+## GO-EXPLORE CYCLE 7 (step-1750 death, from the CALM base) — IN PROGRESS
+
+Frontier captured from calm3-500k: `states/l3_b1750_bd{120,80,40}.state`
+(steps 1630/1670/1710; the maxx capture is degenerate — x hits 232 at step 28
+— IGNORE maxx captures now that x semantics are known).
+
+Cycle-7 events so far:
+- bd40 beam: EXHAUSTED round 7 — at step 1710 the corridor is already FORCED
+  (any 2-step deviation dies at ~13 vs greedy's 39). Dodge must happen earlier.
+- **bd80 beam (HOLD vocab + beam 16): ACCEPTED +107** (161 total ≈ step 1831),
+  REPRODUCED 2/2 — **script is ~1/3 pure HOLD** (`UPx4 > HOLDx8 > ... >
+  HOLDx8 > ... HOLDx2 > DOWNx4`). The stay-put solution is real; wide beam
+  fixed the earlier dilution. Demo `demos/l3_b1750_bd80.npz` (58 steps).
+- **GOTCHA (burned): beam `--name` must NOT equal a captured state's name** —
+  segment_search saves its handoff to `states/<name>.state` and OVERWROTE the
+  bd80 lead-in capture; probes silently measured the handoff. Lead-ins
+  re-captured under prefix `l3_c1750_*`. True-lead-in BC probes: base 54,
+  BC7-20ep **77** (past death; 5/10-epoch doses worse — dataset size, not
+  epochs, is the constraint).
+
+**`l3-calm-cons1` (BC7 seed + penalties DURING formation): EROSION BEATEN.**
+The c1750 corridor probe held 72-130 for the ENTIRE 500k run (base 54, seed
+77; cycle-6 corridors collapsed 490→90 within 300k). b1736 probe held too.
+Churn fell further to ~35%, HOLD ~41%. Remaining: full-level only rebuilt to
+1445/712 (bar 1750) with an odd low-score path variant at some ckpts; x120
+wobbly. Trend strongly upward → keep consolidating.
+
+**`l3-calm-cons2`: CYCLE 7 COMPLETE — NEW FLAGSHIP.**
+**`checkpoints/l3-calm-cons2/lifeforce_ppo_final.zip` — full level 1753 /
+score 1212, churn 41%, HOLD 37%, corridor probe 109, x120 at the 900 cap.**
+The 500k ckpt holds the raw survival record: **1805 steps** (first past 1800;
+session start was 891 — >2x). Corridor probes held through BOTH 500k
+consolidations — the no-drill calm recipe does not erode. Note: score 1212 vs
+the old 1311 (slightly different path); steps are the progress metric.
+
+## Next cycle (8): step ~1805 death
+Recipe (now standard): capture `--before-death 120 80 40` (NEW prefix, never
+reuse a beam --name!) from calm-cons2/final → beam from bd80 with
+`--moves 4 6 8 1 2 0 --beam 16 --durations 2 4 8 --accept-cont 99999` →
+BC 20ep if script ≥30 steps (probe from the TRUE lead-in) → consolidate
+(mix 0.3, ent 0.015, move 0.05, churn 0.2) x2 rounds → sweep (churn/HOLD +
+all corridor probes + full). No drill stage. Watch for the boss: scroll
+stops / stage_num changes ≈ arena (check RAM 0x2F behavior near new deaths).
 2. **`l3_b1736_hold` beam: DONE — negative result.** Accepted only +53
    (38-step script, REPRODUCED 2/2, `demos/l3_b1736_hold.npz`) and the final
    line contains NO HOLD segments; beam exhausted at round 30 (vs v3's +440
