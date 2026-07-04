@@ -287,12 +287,15 @@ CYCLE 8 COMPLETE:
   (35↔900) — the pinch behavior toggles between two modes; worth a dedicated
   look if it persists.
 
-## Next: CYCLE 9 (death ~1762-1770)
-Standard calm recipe. Note the shrinking cycle gains (+93 demo → +9 flagship):
-if cycle 9 also converts poorly, consider (a) longer consolidation, (b) demo
-ensemble (2-3 variants like cycle 6's rescue, now cheap since the recipe
-holds), or (c) check whether the ~1770 hazard needs a deeper script
-(--script-cap 600, more rounds). Boss watch stays on (scroll clock at death).
+CYCLE 9 COMPLETE: beam banked a 12-step dodge (`DOWN+Rx8 > HOLDx4`, +54,
+verified) → NO BC (tiny-dodge rule) → consolidate ×2 (calm recipe).
+**NEW FLAGSHIP: `checkpoints/l3-c9-cons2/lifeforce_ppo_400000_steps.zip` —
+1836 steps / 1215, all probes healthy (e1762 128, d1753 132, x120 900),
+churn 35.5%.** Record: **1856** (c9-cons2/500k, x120 weak). +74
+flagship-to-flagship — conversion recovered after cycle 8's +9.
+
+## CYCLE 10 (death ~1836) — boss check: scroll STILL ticking at death (terrain).
+Standard calm recipe from c9-cons2/400k; capture prefix `l3_f1836`.
 2. **`l3_b1736_hold` beam: DONE — negative result.** Accepted only +53
    (38-step script, REPRODUCED 2/2, `demos/l3_b1736_hold.npz`) and the final
    line contains NO HOLD segments; beam exhausted at round 30 (vs v3's +440
