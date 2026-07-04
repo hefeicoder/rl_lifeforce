@@ -898,11 +898,43 @@ robust now, not knife-edge. **FLAGSHIP:
 `checkpoints/l3-consolidate4/lifeforce_ppo_400000_steps.zip` — full level 1261
 steps / score 708** (session start: 891 / 190).
 
-### Go-explore iteration 4 (step-1261 death, running)
+### Go-explore iterations 4–5 (steps 1261, 1398) — routine cycles
 
-Frontier captured (`states/l3_b1261_bd{120,80,40}.state`); beam from bd120
-(step 1141), `--accept-cont 99999`, seed 0. Round 1 already +59 (`Rx12`).
-Log: `logs/l3_b1261_beam.log`.
+Same recipe, both landed: iteration 4 banked `Rx12` (+59) at step-1261 → drill
+(no BC) → consolidate5 → **flagship 1398/811** (`l3-consolidate5/50000`).
+Iteration 5 banked a 20-step dodge (+96) at step-1398 → drill → consolidate6 →
+**flagship 1736/1314** (`l3-consolidate6/final`; score jump 811→1314 = a whole
+new scoring section). Drills consistently overshoot their beam's local gain
+(the local fix propagates through the deterministic trajectory), and the best
+checkpoint is consistently mid-run — sweep everything.
+
+### Go-explore iteration 6 (step-1736 gauntlet) — search SOLVED, robustification BLOCKED
+
+The hardest section yet, and the first cycle the pipeline could not close:
+
+- Coarse beam (bd120, durations 4/8/12/16): pinned at +14 after 13 rounds — FAIL.
+- Fine beam (bd80, durations 2/4/8, 20 rounds): 68-step script, +57, verified.
+- Extended (40 rounds): 178-step script, +125. Extended again (60 rounds,
+  script-cap 400): **267-step script, +231, verified 2/2 → ≈ step 1964 from
+  level start** (`demos/l3_b1736_fine3.npz`). Deterministic seed = each
+  extension re-treads the previous rounds for free.
+- **BC 20 epochs: best transfer of the session — greedy 389 steps from bd80**
+  (beats the script's 308). But BC wrecked everything else (b811 16, x120 21).
+- **Every robustification attempt eroded the corridor**: drill mix 1.0
+  (491→90), consolidate mix 0.3 ent 0.03 (peak full 1629 < bar, corridor ~90),
+  consolidate from BC5 ent 0.01 (mode collapse: one 485-step score-0 line).
+
+**Mechanism:** the 267-step corridor has near-zero action tolerance. Stochastic
+training rollouts die in it constantly, so PPO learns avoidance even though the
+deterministic policy threads it; BC implants it at the cost of everything else;
+too-low entropy can't rebuild what BC broke. Implant vs erosion is currently a
+strict trade-off. Rescue ideas ranked in RESUME.md (demo-ensemble BC for
+tolerance, KL-anchored/interleaved self-imitation, scroll-depth reward shaping,
+entropy annealing).
+
+**Session 7 final flagship: `checkpoints/l3-consolidate6/lifeforce_ppo_final.zip`
+— 1736 steps / score 1314** (vs 891/190 at session start; +95% survival, 6.9×
+score; five hazards banked and consolidated; the sixth found-but-not-yet-learned).
 
 ## Artifacts produced this session
 

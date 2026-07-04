@@ -119,31 +119,58 @@ _Full history: `docs/go-explore-l3-progress.md` (Sessions 1–7)._
     ~+10/round at the cap; the gauntlet extends past 200 scripted steps and no
     healthy handoff yet (cont ~24).
 
-## CURRENTLY RUNNING
+23. **Fine beam round 3 (`l3_b1736_fine3`, 60 rounds, cap 400): banked +231** —
+    267-step script, 308 total from bd80 (≈ step 1964 from level start),
+    REPRODUCED 2/2 → `demos/l3_b1736_fine3.npz`. Was still gaining slowly at
+    round 60; continuation ~40 (gauntlet's far side not yet reached).
+24. **BC round 5: best transfer of the session** — 20 epochs on the 267-step
+    demo → greedy-from-bd80 = **389 steps** (beats the script's own 308).
+    `checkpoints/l3-bc5/lifeforce_ppo_bc20.zip`. Long demos clone cleanly.
 
-**Fine beam round 3 (`l3_b1736_fine3`)** — extended to `--rounds 60
---script-cap 400` (re-treads rounds 1-40, ~18 min, then 20 new rounds):
+25. **Drill (`l3-drill1736b`) + consolidation 7: CORRIDOR ERODES.** Drill peaked
+    b1736=491 @100k then washed to ~90; consolidate7 peaked full=1629 (< 1736
+    bar) with b1736 ~90. Mechanism: the 267-step corridor has near-zero
+    tolerance — STOCHASTIC training rollouts die in it constantly, so PPO
+    learns avoidance even though the deterministic policy threads it. BC5's
+    own retention is wrecked (b811 16, x120 21, full 61): implant vs erosion
+    is symmetric. **Flagship still consolidate6/final (1736/1314).**
 
-```
-nohup .venv/bin/python -u -m tools.segment_search \
-  --model checkpoints/l3-consolidate6/lifeforce_ppo_final.zip \
-  --state states/l3_b1736_bd80.state \
-  --name l3_b1736_fine3 --beam 8 --rounds 60 --seed 0 --accept-cont 99999 \
-  --durations 2 4 8 --script-cap 400 \
-  > logs/l3_b1736_fine3.log 2>&1 &
-```
+26. **Low-entropy consolidation (`l3-consolidate8`, ent 0.01): FAILED — mode
+    collapse.** All checkpoints play one degenerate 485-step / score-0 line
+    from the level start (too little entropy to rebuild the BC-damaged
+    skills) and the corridor eroded anyway (389 → 73).
 
-Log: `logs/l3_b1736_fine3.log`. Stop extending when the continuation exceeds
-~100 (healthy handoff = the gauntlet's far side) or gains flatten.
+## CYCLE 6 STATUS: BLOCKED ON ROBUSTIFICATION (auto-loop paused here)
 
-## Next steps (in order)
+**Flagship: `checkpoints/l3-consolidate6/lifeforce_ppo_final.zip` (1736/1314).**
 
-1. BC(20-40 epochs) the final long demo into consolidate6/final → drill with
-   curriculum {b1736_bd80 + retention probes} (SKIP handoff states — cold
-   frame-stack, see #21) → consolidate → sweep vs bar **≥1736**.
-2. If the corridor still won't transfer to the policy: bigger BC (40 epochs /
-   repeated demo), or warmup-shifted curriculum starts.
-3. Commit the session's work — propose to user first.
+What's banked and reusable: verified 267-step gauntlet script
+(`demos/l3_b1736_fine3.npz`, +231, ≈ step 1964 from level start) and the BC5
+seed that threads it greedily for 389 steps
+(`checkpoints/l3-bc5/lifeforce_ppo_bc20.zip`).
+
+Why it's stuck: the corridor has near-zero tolerance. ANY stochastic PPO
+training dies in it constantly → learns avoidance (drill: 491→90;
+consolidate7: ~90). BC implants it but wrecks other skills (b811 16, x120 21).
+Low entropy prevents rebuilding (mode collapse). Erosion vs implant is
+currently a strict trade-off.
+
+Ideas for next session (in rough order of promise):
+1. **Widen the corridor tolerance**: beam-search demo VARIANTS from perturbed
+   starts (bd120/bd80/bd40, different warmups) → BC the ensemble (DAgger-ish
+   coverage) so nearby states also have good actions.
+2. **KL-anchored consolidation**: consolidate from BC5 with a KL penalty to
+   the BC5 policy (or interleave 1-2 BC refresh epochs every ~50k PPO steps —
+   true self-imitation) so the corridor can't drift far.
+3. **Reward shaping**: small dense bonus for scroll-clock progress past the
+   step-1736 mark (or death penalty scaled by depth) so corridor attempts
+   aren't pure negative signal.
+4. Entropy schedule: start 0.03 (rebuild), anneal to 0.005 (protect corridor).
+
+## Next steps
+
+1. (user decision) pick a rescue idea above, or accept 1736 and move on.
+2. Update PR #1 / progress doc with the cycle-6 saga; commit.
 
 ## Next steps (in order)
 
