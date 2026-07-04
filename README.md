@@ -27,10 +27,12 @@ own ROM, and extending the game integration (finding RAM addresses) yourself.
   + power-up reward shaping), PPO with stability fixes (`target_kl`, LR annealing,
   reward normalization), TensorBoard metrics, and a live/video player.
 - ✅ **Save-state curriculum** — capture a hard spot, auto-mix it into training.
-- 🔜 **Clearing Level 1** — the agent reliably reaches a mid-stage terrain
-  "gauntlet" but doesn't yet thread it; iterating on curriculum, loadout
-  (no speed), and exploration. (The bundled 10M-step benchmark never cleanly
-  cleared either — this is hard.)
+- ✅ **Go-explore loop** — plan-with-search → imitate → robustify → consolidate;
+  broke the long-standing mid-stage plateau and keeps compounding (see
+  [Training strategy](#training-strategy-the-go-explore-loop)). Survival from
+  the level start: **891 → 1736+ steps** (~2 min of play), score **190 → 1314**.
+- 🔜 **Clearing Level 1** — current frontier is a late terrain gauntlet,
+  estimated ~30–60s short of the stage-1 boss.
 
 ## Docs
 
@@ -143,6 +145,44 @@ Most knobs live in [`src/config.py`](src/config.py): reward weights (`REWARD_*`)
 `CURRICULUM_MIX`, PPO hyperparameters, `FRAME_SIZE`. Handy CLI overrides:
 `--ent-coef` (raise it, e.g. `0.03`, for more exploration to break a plateau),
 `--save-freq`, `--timesteps`, `--device`.
+
+## Training strategy: the go-explore loop
+
+PPO alone plateaus on this game: the hard sections need long precise maneuvers
+(a ~5⁻⁷⁰ event under random exploration), and the safe "retreat and camp" habit
+is a local optimum PPO's clipped updates won't jump out of. The fix is a loop
+that separates *discovering* a skill from *learning* it — after
+[Go-Explore](https://arxiv.org/abs/1901.10995) (explore until solved, then
+robustify). Life Force auto-scrolls, so **steps survived = level progress**;
+each cycle pushes the policy's death point deeper:
+
+1. **Capture** the frontier — run the best policy deterministically, save
+   emulator states ~120/80/40 steps before its death
+   (`tools/capture_frontier_states.py`).
+2. **Search** — beam search over scripted move-segments from that state, scored
+   by total survival, winners verified by 2 independent replays
+   (`tools/segment_search.py --beam`; `--durations 2 4 8` for precision hazards;
+   deterministic seed → killed runs re-tread for free, so extending
+   `--rounds`/`--script-cap` resumes a search). Planning, not learning — it
+   finds the needle PPO never would.
+3. **Seed** (only if the found script is long, ≥~30 steps) — behavior-clone the
+   demo into the policy, ~20 epochs (`tools/self_imitation.py`). Skip for tiny
+   dodges: BC on a handful of frames distorts more than it teaches.
+4. **Drill** — PPO with `--curriculum-mix 1.0`, episodes starting from the new
+   hazard's lead-in **plus every previous hazard's lead-in** (retention — old
+   skills get rehearsed with the current policy instead of washing out).
+5. **Consolidate** — PPO at `--curriculum-mix 0.3` (70% true level starts) to
+   weld the specialist skills into one cold-start policy.
+6. **Sweep, never trust `final`** — evaluate every checkpoint on all hazard
+   probes + the full level; the winner is frequently mid-run. Crown it, go to 1.
+
+Division of labor: **search discovers, BC implants, PPO robustifies, curriculum
+retains, consolidation unifies, sweeps select.** Each cycle ≈ 30–40 min on an
+M-series Mac and has gained +60 to +300 steps of progress. Session-by-session
+history and the measured failure modes (BC on 4-frame demos, GREEDY moves in
+the beam vocab, cold frame-stack on state reload) live in
+[`docs/go-explore-l3-progress.md`](docs/go-explore-l3-progress.md); live run
+state lives in `RESUME.md`.
 
 ## How it works (design)
 

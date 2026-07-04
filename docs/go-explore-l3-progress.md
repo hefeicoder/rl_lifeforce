@@ -610,6 +610,300 @@ from the saved state) becomes the BC demo. Then `self_imitation` → PPO.
   lifeforce_ppo_700000_steps.zip` (best deterministic wall-start: 121 / max_x 169 /
   score 423) or `checkpoints/l3-wall-hold2/lifeforce_ppo_final.zip`.
 
+## Session 7 — regression check + structured segment search
+
+### Full-level regression check (finally run; deterministic, 1 ep from true level start)
+
+| checkpoint | steps | score | max_x | mean_x |
+|---|---:|---:|---:|---:|
+| 2M baseline (`lv1-front-speed/2000000`) | **891** | 190 | 226 | 119 |
+| hold2 (`l3-wall-hold2/final`) | 566 | 190 | 232 | 189 |
+| mixed-700k (`l3-pinch-mixed-long/700000`) | **75** | 9 | 231 | 190 |
+
+**The pinch specialists regressed hard on the full level.** mixed-700k front-rushes
+from the level start (mean_x 190) and dies at 75 steps — the front-shaping +
+`--curriculum-mix 1.0` (never seeing level starts) re-broke the early level,
+exactly the gauntlet-#1 failure the config comments warned about. Videos:
+`videos/regress_{2M-baseline,hold2,mixed-700k}.mp4`.
+
+**Consequence for the plan:** mixed-700k stays the base for the *pinch* demo/BC
+work (its local 121/169 approach is what matters at the wall), but after the pinch
+is solved a **consolidation phase is mandatory**: PPO with the full curriculum
+(level start included, mix well below 1.0), judged by full-level steps vs the 2M
+baseline's 891. The L3 branch is currently a specialist, not a level-1 policy.
+
+### Structured segment search (`tools/segment_search.py`, new)
+
+Session 6 decision implemented: exhaustive sweep of 3-segment (move × duration)
+plans — {R, UP+R, DOWN+R, UP, DOWN} × {4,8,12,16} agent-steps = 8000 plans — from
+a FRESH reload of `l3_pinch_x120.state` per candidate (no advance phase; the
+non-reproducibility source is designed out), scored by greedy-handoff survival,
+winners verified by 2 independent reloads before any demo/state is written.
+Determinism probe passes; greedy baseline from x120 = 107 steps / max_x 169.
+Smoke finding: single UP+R×8 reaches max_x=205 (past the pinch) but handoff dies
+at 26 steps — forward-only crosses x but isn't survivable (consistent with S4).
+
+### Exhaustive sweep result: dry, but decisive diagnosis
+
+All 8000 plans: none beat the 107-step baseline; top plans reach max_x=211 with a
+clean handoff yet die at EXACTLY 107 — identical to greedy alone. Trace of the best
+plan (`videos/l3_plan_trace.mp4`): script puts the ship at x=204–211 y=143 through
+the gap zone (steps 10–20), then greedy RETREATS 211→15 by step 65, camps, and dies
+at 107 on schedule. **Any ≤48-step script is erased by the retreat prior; the
+handoff must happen after the dangerous terrain has scrolled past (~step 107+).**
+
+### Beam search (v1: fixed-move vocab)
+
+Added `--beam` mode: grow the script segment-by-segment, prune branches that die
+in-script, rank by total survival (script + greedy continuation), verify winners
+2× from fresh reloads. Result: **round 7–8 breakthrough — 198 total steps (+91 vs
+107), script 76 steps, greedy continuation 122** — first time greedy survives past
+the camping death; new death at ~198 is the next obstacle downstream. Rounds 9–13
+declined (147): the 198 branch died out of the beam because fixed-move segments
+can't out-play greedy in the stretch greedy already handles (steps ~76–198).
+Killed at round 13 (deterministic: `--rounds 9`, seed 0, no `--greedy-move`
+reproduces the 198 line exactly if we ever want to bank it).
+
+### Beam v2: GREEDY pseudo-move — FAILED (negative result, keep for the record)
+
+Added `--greedy-move`: a segment that FOLLOWS the deterministic policy for d steps
+(recorded, recomputed per replay — reproducible). Hypothesis: the beam rides the
+policy where it's already right and scripts only the corrections. Acceptance: greedy
+continuation ≥150 steps and gain ≥30, verified 2×.
+
+Result (width 8, seed 0, log `logs/l3_beamg_v2.log`): best total pinned at EXACTLY
+107 (+0) for all 12 rounds, then round 13 exhausted the beam — every extension died
+in-script. **Why it failed:** GREEDY is the safest move in-script, so greedy-mimicking
+branches dominate the survival ranking; but pure greedy IS the step-107 camping death,
+so every retained branch funnels into it, and with all survivors tied at 107 steps the
+beam's tie-breaking is random — the corrective scripted prefixes that produced v1's
+198 line get crowded out and never return. Survivor count collapsed 137→62→18→0 over
+rounds 10–13. Lesson: don't put the baseline policy in the vocab when the baseline is
+the failure mode being searched around.
+
+### Banking v1's 198 line (`demos/l3_pinch_beam198.npz`) — DONE
+
+Re-ran the v1 config (fixed-move vocab, `--beam 8 --rounds 9 --seed 0`, no
+`--greedy-move`) with `--name l3_pinch_beam198`. Reproduced: round 9 best = **198
+total steps (+91), max_x 232**, script `DOWNx4 > Rx4 > Rx8 > UPx4 > DOWNx4 > UP+Rx16
+> Rx16 > DOWN+Rx16 > Rx4` (76 steps, continuation 122), REPRODUCED 2/2. Saved
+`demos/l3_pinch_beam198.npz` + handoff `states/l3_pinch_beam198.state`.
+Log: `logs/l3_beam198_bank.log`.
+
+### BC (`tools/self_imitation.py`) — maneuver transfers, but open-loop
+
+10 epochs on the 76-step demo, loss 3.38 → 0.14 → `checkpoints/l3-bc/lifeforce_ppo_bc.zip`.
+Greedy eval from x120 (empty-plan rollout):
+
+| policy | steps | max_x | read |
+|---|---:|---:|---|
+| base mixed-700k | 107 | 169 | camps, dies at 107, never crosses |
+| BC | 66 | **232** | charges THROUGH the pinch like the demo, dies mid-maneuver |
+
+BC flipped the behavior from "retreat and camp" to "attempt the demo maneuver" but
+can't execute it closed-loop (compounding error) — exactly the gap PPO's survival
+reward is supposed to close.
+
+### PPO robustify (`l3-bc-ppo`) — PINCH SOLVED (as a specialist)
+
+```
+python -m src.train --resume checkpoints/l3-bc/lifeforce_ppo_bc.zip \
+  --run-name l3-bc-ppo --timesteps 500000 --ent-coef 0.05 \
+  --curriculum-glob 'states/l3_bc_curriculum/*.state' --curriculum-mix 1.0 --save-freq 50000
+```
+
+Curriculum = {x100, x120, **beam198 handoff**} (handoff = train from PAST the pinch;
+go-explore: train from the frontier). 500k steps, ~11 min on mps. Deterministic
+greedy eval (empty-plan rollout), all checkpoints:
+
+| ckpt | x120 steps/max_x | wall steps/max_x |
+|---|---|---|
+| base mixed-700k | 107 / 169 | 121 / 169 |
+| scripted 198 line | 198 / 232 | — |
+| 50k | 104 / 232 | 114 / 232 |
+| 200k | 217 / 232 | 229 / 232 |
+| 400k | 264 / 232 | 240 / 232 |
+| **final** | **318 / 232** | **276 / 232** |
+
+**Every checkpoint crosses the pinch closed-loop from 50k on; final survives 318
+steps from x120 — +120 past the scripted line.** The BC seed + survival reward
+closed the compounding-error gap completely. Note max_x saturates at exactly 232
+everywhere (same value hold2 hit on the full level) — 232 is the next barrier (or an
+x-counter cap); gains past ~200k steps are survival AT 232, not progress past it.
+
+Full-level regression (deterministic, from true level start): **75 steps** — same
+as mixed-700k. The specialist front-rushes (mean_x 196) and dies early. Expected;
+triggers the consolidation phase.
+
+### Consolidation (`l3-consolidate`) — level start recovered AND pinch retained
+
+```
+python -m src.train --resume checkpoints/l3-bc-ppo/lifeforce_ppo_final.zip \
+  --run-name l3-consolidate --timesteps 500000 --ent-coef 0.03 \
+  --curriculum-glob 'states/l3_bc_curriculum/*.state' --curriculum-mix 0.5 --save-freq 50000
+```
+
+Mix 0.5 = half the episodes from the TRUE level start, half from the pinch states.
+Judged on BOTH bars. Deterministic sweep (corrected — see eval-gotcha below):
+
+| ckpt | full-level steps/max_x | x120 steps/max_x |
+|---|---|---|
+| pre (l3-bc-ppo final) | 75 / 232 | 318 / 232 |
+| 2M baseline (reference) | 891 / **226** | — (camps at 107/169) |
+| 100k | 526 / 233 | 292 / 232 |
+| 400k | 775 / 233 | 416 / 233 |
+| **final** | **775 / 233** | **428 / 232** |
+
+Level-start survival 75 → **775** while x120 stayed 292–428 (bar 198) at every
+checkpoint. **The consolidated policy crosses the pinch from a cold level start**
+(max_x 233 vs the baseline's 226 — the baseline never crossed; its 891 steps were
+wall-camping). Remaining gap: raw survival 775 vs 891.
+
+**Eval gotcha (burned once):** `tools.segment_search.rollout` sets
+`env.unwrapped.initial_state` — after any state-load, `env.reset()` NO LONGER
+returns to the level start. Save `env.unwrapped.initial_state` before the first
+load and restore it before level-start evals, or the "full level" numbers are
+silently x120 numbers (symptom: both columns identical).
+
+### Consolidation round 2 (`l3-consolidate2`) — converged; ACCEPTED as new best
+
+Same recipe from `l3-consolidate/final`, `--curriculum-mix 0.3` (70% level starts).
+Full-level plateaued at ~805–812 across six checkpoints (peak 812 @300k; final
+**811 / max_x 233**, x120 **434**). 891 not reached, but accepted per the
+progress-beats-camping rule: baseline's 891 was wall-camping at x≤226; this policy
+crosses the pinch cold. x120 dipped to 190 at the 200k checkpoint only (transient —
+sweep checkpoints, never trust just the final).
+
+**NEW BEST OUR-LINEAGE FULL-LEVEL POLICY:
+`checkpoints/l3-consolidate2/lifeforce_ppo_final.zip`**
+(full level 811 steps / max_x 233 / score 190; x120 434 steps).
+
+### CORRECTION — max_x semantics (this reframes the "232 barrier")
+
+`x_pos` (RAM 0x350) is the ship's SCREEN position, hard range 15..232
+(`C.X_POS_MIN/MAX`; can blip to 234 at scroll transitions). Life Force auto-scrolls
+(clock at RAM 0x2F advances ~0.25/frame regardless of input), so **steps survived
+IS level progress; max_x only measures how far front on screen the ship ventured.**
+Therefore:
+
+- There is NO "x=232/233 barrier" — that's the screen edge. The next obstacle is
+  the terrain event at scroll-time ~step 811 (from level start).
+- The consolidate2 acceptance argument "max_x 233 > 226 = more progress than the
+  camping baseline" was WRONG — screen position isn't progress. On the honest
+  metric the 2M baseline (891 steps) still survives ~80 steps deeper than ours
+  (811). **The 891 full-level bar stands, currently unmet.** consolidate2/final
+  remains the best policy of the BC lineage and keeps the x120-start skill
+  (107 → 434 steps), but it dies at a step-811 event the baseline survived —
+  likely BECAUSE of its front-venturing habit; a survivable positioning exists.
+- Earlier "crosses the pinch (max_x 232)" phrasing = "ventures to the front of the
+  screen through the pinch section"; the real signal was always the step gains.
+
+### Trajectory anatomy + next frontier (step 404)
+
+`capture_frontier_states` on the policy's full-level run: front-most excursion at
+step 404, then it retreats to the rear (screen x=16) and dies at step 811 (mean_x
+136). Captured `states/l3_b232_maxx.state` (step 404) as the search start — ~400
+steps of lead-in before the step-811 death.
+
+### Go-explore iteration 2 — two beams, one winner
+
+Two parallel beam searches at the step-811 death (proven recipe: fixed-move vocab,
+`--beam 8 --seed 0`, NO --greedy-move):
+
+- **From step 404 (`l3_b232_beam`): killed at round 4.** The death sits ~400 steps
+  out but `--script-cap` is 200 — the script can only steer the handoff, and every
+  branch funneled to the same death (+1 after 4 rounds, ~11 min/round). Lesson:
+  **start the beam ~120 steps before the death** (like the pinch search), not at
+  the front-most excursion.
+- **From step 691 (`l3_b811_beam` = `l3_b232_bd120.state`, 120 before death):
+  ACCEPTED at round 11.** Baseline 119; rounds 1–10 pinned at ±2 (short 4-step
+  wiggle segments), then round 10 grew forward segments and round 11 broke through:
+  script `UPx4 > DOWNx4 > UPx4 > UPx4 > DOWNx4 > Rx4 > Rx4 > DOWN+Rx12 > Rx16 >
+  UPx16 > UP+Rx8` (80 steps) → **400 total steps (+281), continuation 320,
+  REPRODUCED 2/2**. From level start that's ~step 1091 — 200 past the 891 bar.
+  Demo `demos/l3_b811_beam.npz`, handoff `states/l3_b811_beam.state`.
+
+### BC round 2 — 10 epochs too weak, 20 works
+
+BC of the 80-step demo into `l3-consolidate2/final`: at 10 epochs (loss 0.20)
+greedy-from-bd120 stayed 120 (no transfer); at **20 epochs** (loss 0.009) it
+reaches **139 — past the step-119 death**. `checkpoints/l3-bc2/lifeforce_ppo_bc20.zip`.
+Side effects as last time (x120 434→250, full level 811→65) — consolidation's job.
+
+### PPO robustify round 2 (`l3-bc2-ppo`, running)
+
+```
+python -m src.train --resume checkpoints/l3-bc2/lifeforce_ppo_bc20.zip \
+  --run-name l3-bc2-ppo --timesteps 500000 --ent-coef 0.05 \
+  --curriculum-glob 'states/l3_b811_curriculum/*.state' --curriculum-mix 1.0 --save-freq 50000
+```
+
+Curriculum = {bd120, b811 handoff, x120}. Sweep: bd120 up to **532** (350k–500k),
+x120 collapsed to 23 mid-run then recovered to 434 by 500k, full-level broken (~65,
+expected). Consolidation base = 500k.
+
+### Consolidation round 3 (`l3-consolidate3`) — **891 BAR BROKEN**
+
+```
+python -m src.train --resume checkpoints/l3-bc2-ppo/lifeforce_ppo_500000_steps.zip \
+  --run-name l3-consolidate3 --timesteps 500000 --ent-coef 0.03 \
+  --curriculum-glob 'states/l3_b811_curriculum/*.state' --curriculum-mix 0.3 --save-freq 50000
+```
+
+| ckpt | full steps | score | bd120 | x120 |
+|---|---:|---:|---:|---:|
+| 2M baseline | 891 | 190 | — | — |
+| 250k | 1086 | 696 | 390 | 462 |
+| 350k | 1065 | 690 | 514 | 462 |
+| **400k** | **1111** | **699** | 374 | 432 |
+| 450k–final | ~530 | 90 | ~400 | ~300 |
+
+**NEW BEST POLICY: `checkpoints/l3-consolidate3/lifeforce_ppo_400000_steps.zip` —
+full level 1111 steps / score 699** (+220 steps, 3.7× score vs the 2M baseline),
+with both drilled skills retained. Checkpoints after 400k washed out to ~530/90:
+the sweep, not the final checkpoint, is what finds the winner. Two full go-explore
+iterations (pinch, step-811) both banked into one policy.
+
+### Go-explore iteration 3 (step-1111 death) — trivial dodge found instantly
+
+Frontier captured from the 1111 run (front-most at step 738; death at 1111,
+terminal screen-x 16). Beam from `l3_b1111_bd120.state` (step 991) accepted in
+ROUND 1: **a single `UPx4` → +94** (214 total, cont 210, REPRODUCED 2/2) →
+`demos/l3_b1111_beam.npz` (4 steps) + `states/l3_b1111_beam.state`. The hazard is
+a near-miss mispositioning, and the terrain past 1111 is easy for ≥200 steps.
+Re-ran the beam with `--accept-cont 99999` (`l3_b1111_deep`) to bank the deepest
+script 13 rounds can find: global best from round 8 verified 2/2 — 96-step script,
+**218 total (+98)** → `demos/l3_b1111_deep.npz`. Only +4 over the UPx4 dodge.
+
+### BC on a 4-step demo — FAILED (lesson: match the tool to the maneuver size)
+
+20 epochs on the 4-sample UPx4 demo wrecked the policy locally (bd120 120 → 15):
+gradient-hammering 4 frames bends everything nearby. Checkpoint deleted.
+**Rule: BC for long precise maneuvers (≥~30-step demos); tiny dodges → plain PPO
+drilling, exploration finds them.**
+
+### Drill without BC (`l3-drill1111`) — dodge learned, full level jumps to 1245
+
+PPO directly from consolidate3/400k, mix 1.0, curriculum {b1111_bd120, b1111
+handoff, x120, b232_bd120}. Sweep: dodge learned (b1111 120 → 263–300), b811 up to
+624, x120 stable ~455 — and full-level jumped to **1245–1251** at 50k/450k/500k
+even with zero level-start episodes (the local fix propagates through the
+deterministic trajectory). Final washed out (504). Base for consolidation: 500k.
+
+### Consolidation round 4 (`l3-consolidate4`) — stable at ~1255, NEW FLAGSHIP
+
+Mix 0.3 from drill/500k. Nearly EVERY checkpoint holds full-level ~1243–1268 with
+all skills intact (b1111 ~250–300, b811 ~550–600, x120 ~470) — the behavior is
+robust now, not knife-edge. **FLAGSHIP:
+`checkpoints/l3-consolidate4/lifeforce_ppo_400000_steps.zip` — full level 1261
+steps / score 708** (session start: 891 / 190).
+
+### Go-explore iteration 4 (step-1261 death, running)
+
+Frontier captured (`states/l3_b1261_bd{120,80,40}.state`); beam from bd120
+(step 1141), `--accept-cont 99999`, seed 0. Round 1 already +59 (`Rx12`).
+Log: `logs/l3_b1261_beam.log`.
+
 ## Artifacts produced this session
 
 - Demos: `demos/l3_bridge.npz`, `l3_bridge_m40/60/80.npz`, `l3_bridge_long.npz`

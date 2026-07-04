@@ -44,6 +44,9 @@ from src.env import make_env
 # pure vertical adjustments. B(fire) is hardwired on in every move.
 DEFAULT_MOVES = [4, 6, 8, 1, 2]        # R, UP+R, DOWN+R, UP, DOWN
 DEFAULT_DURS = [4, 8, 12, 16]          # agent-steps per segment (frame-skip 4)
+GREEDY_MOVE = -1                       # pseudo-move: follow the greedy policy for the
+                                       # segment (lets beam search ride the policy where
+                                       # it is already right and script only corrections)
 
 
 def load_state(path):
@@ -66,9 +69,12 @@ def rollout(env, start, model, plan, warmup, cont_cap, record=False):
     d_obs, d_acts = [], []
     steps, max_x, cleared, done = 0, 0, False, False
 
+    rec = {"on": record}                          # demo = warmup+segments ONLY, not
+                                                  # the greedy continuation (it would
+                                                  # dilute the BC signal ~5:1)
     def _step(act):
         nonlocal obs, steps, max_x, cleared, done
-        if record:
+        if rec["on"]:
             d_obs.append(np.asarray(obs, dtype=np.uint8))
             d_acts.append(np.asarray(act))
         obs, _, term, trunc, info = env.step(act)
@@ -88,13 +94,18 @@ def rollout(env, start, model, plan, warmup, cont_cap, record=False):
         for _ in range(dur):
             if done:
                 break
-            _step(np.array([move, 0]))
+            if move == GREEDY_MOVE:               # pseudo-move: follow the policy for
+                a, _ = model.predict(obs, deterministic=True)  # d steps (deterministic,
+                _step(a)                          # recomputed per replay -> reproducible)
+            else:
+                _step(np.array([move, 0]))
         if done:
             break
     if not done:
         seg_end_state = env.unwrapped.em.get_state()
     survived_segments = not done
 
+    rec["on"] = False
     c = 0
     while not done and c < cont_cap:              # clean-handoff scoring
         a, _ = model.predict(obs, deterministic=True)
@@ -106,9 +117,68 @@ def rollout(env, start, model, plan, warmup, cont_cap, record=False):
             "obs": d_obs, "acts": d_acts, "plan": plan}
 
 
+def beam_search(env, start, model, args, base):
+    """Grow the scripted plan segment-by-segment with beam pruning. Needed when the
+    dangerous window is LONGER than an enumerable plan: from x120 the camping death
+    is at ~step 107, and any short script that hands off early gets erased by the
+    policy's retreat prior (measured: script to x=211, greedy retreats to x=15 by
+    step 65, dies at 107 — identical to baseline). So the script must survive PAST
+    the danger before handing off. Deterministic env -> this is planning; score each
+    prefix by TOTAL survival (script + greedy continuation) and keep the top-K
+    surviving prefixes per round. Returns the accepted rollout or None."""
+    rng = np.random.default_rng(args.seed)
+    moves = list(args.moves) + ([GREEDY_MOVE] if args.greedy_move else [])
+    vocab = list(itertools.product(moves, args.durations))
+    beams = [[]]                                   # surviving prefixes (round 0: empty)
+    best, t0 = None, time.perf_counter()
+    for rnd in range(args.rounds):
+        scored = []
+        for prefix in beams:
+            for m, d in vocab:
+                plan = prefix + [(m, d)]
+                r = rollout(env, start, model, plan, args.warmup, args.continuation)
+                script_len = sum(dd for _, dd in plan)
+                if not r["survived_segments"]:
+                    continue                        # died in-script: prune this branch
+                cont = r["steps"] - script_len - args.warmup
+                scored.append((r["cleared"], r["steps"], r["max_x"], rng.random(), plan, r, cont))
+        if not scored:
+            print(f"  round {rnd+1}: every extension died in-script — beam exhausted")
+            break
+        scored.sort(reverse=True)
+        top = scored[0]
+        if best is None or (top[0], top[1], top[2]) > (best[0], best[1], best[2]):
+            best = top
+        beams = [s[4] for s in scored[:args.beam]]
+        el = time.perf_counter() - t0
+        print(f"  round {rnd+1}/{args.rounds}: {len(scored)} survivors, best total "
+              f"{top[1]} steps (+{top[1]-base['steps']}) max_x={top[2]} cont={top[6]}  "
+              f"[{fmt_plan(top[4])}]  ({el:.0f}s)")
+        # accept early once the handoff itself is healthy: script survived AND the
+        # greedy continuation lives long past the danger window
+        if top[6] >= args.accept_cont and top[1] - base["steps"] >= args.min_gain:
+            print(f"  continuation {top[6]} >= {args.accept_cont}: accepting")
+            best = top
+            break
+        if sum(d for _, d in beams[0]) + args.warmup >= args.script_cap:
+            print(f"  script length reached --script-cap {args.script_cap}")
+            break
+    if best is None or best[1] - base["steps"] < args.min_gain:
+        return None
+    # verify: 2 independent fresh reloads must reproduce, then record the demo
+    plan = best[4]
+    v1 = rollout(env, start, model, plan, args.warmup, args.continuation)
+    v2 = rollout(env, start, model, plan, args.warmup, args.continuation, record=True)
+    ok = {(v["steps"], v["max_x"]) for v in (v1, v2)} == {(best[1], best[2])}
+    verdict = ("REPRODUCED 2/2" if ok
+               else f"MISMATCH ({v1['steps']}/{v2['steps']} vs {best[1]})")
+    print(f"verify best [{fmt_plan(plan)}]: {verdict}")
+    return v2 if ok else None
+
+
 def fmt_plan(plan):
     names = {1: "UP", 2: "DOWN", 4: "R", 6: "UP+R", 8: "DOWN+R", 0: "HOLD",
-             3: "LEFT", 5: "UP+L", 7: "DOWN+L"}
+             3: "LEFT", 5: "UP+L", 7: "DOWN+L", GREEDY_MOVE: "GREEDY"}
     return " > ".join(f"{names.get(m, m)}x{d}" for m, d in plan)
 
 
@@ -131,6 +201,17 @@ def main():
     p.add_argument("--top", type=int, default=5, help="verify this many top candidates")
     p.add_argument("--max-candidates", type=int, default=0, dest="max_candidates",
                    help="0 = exhaustive; else uniform subsample of the plan space")
+    p.add_argument("--beam", type=int, default=0,
+                   help="beam width; >0 switches to segment-by-segment beam search "
+                        "(for maneuvers longer than an enumerable plan)")
+    p.add_argument("--greedy-move", action="store_true", dest="greedy_move",
+                   help="add a GREEDY pseudo-move to the vocab: a segment that follows "
+                        "the policy (recorded; deterministic). Beam only.")
+    p.add_argument("--rounds", type=int, default=20, help="max beam rounds (segments)")
+    p.add_argument("--script-cap", type=int, default=200, dest="script_cap",
+                   help="stop growing the script past this many agent-steps")
+    p.add_argument("--accept-cont", type=int, default=150, dest="accept_cont",
+                   help="accept once the greedy continuation alone survives this long")
     p.add_argument("--seed", type=int, default=0)
     args = p.parse_args()
 
@@ -150,6 +231,20 @@ def main():
     # --- greedy baseline from the same start (the bar to beat) ---
     base = rollout(env, start, model, [], args.warmup, args.continuation)
     print(f"greedy baseline: {base['steps']} steps / max_x {base['max_x']} / cleared={base['cleared']}\n")
+
+    # --- beam mode: grow the script past the danger window, then verify+save ---
+    if args.beam > 0:
+        print(f"beam search: width={args.beam} vocab={len(args.moves)}x{len(args.durations)} "
+              f"rounds<={args.rounds} script-cap={args.script_cap} accept-cont={args.accept_cont}")
+        accepted = beam_search(env, start, model, args, base)
+        if accepted is None:
+            print(f"\nNo verified beam plan beat baseline by {args.min_gain}+ steps.")
+            print("Signal: the corridor may need finer moves (--durations 2 4 8), a different "
+                  "start state, or closed-loop control -> human demo fallback.")
+        else:
+            _save_outputs(accepted, base, args)
+        env.close()
+        return
 
     # --- exhaustive sweep of the plan space ---
     space = list(itertools.product(
@@ -206,6 +301,11 @@ def main():
         env.close()
         return
 
+    _save_outputs(accepted, base, args)
+    env.close()
+
+
+def _save_outputs(accepted, base, args):
     os.makedirs("demos", exist_ok=True)
     demo = f"demos/{args.name}.npz"
     np.savez_compressed(demo, obs=np.asarray(accepted["obs"], dtype=np.uint8),
@@ -219,7 +319,6 @@ def main():
     print(f"  handoff state (segment end) -> {st}")
     print(f"next: python -m tools.self_imitation --model {args.model} --demos {demo} "
           f"--out checkpoints/l3-bc/lifeforce_ppo_bc.zip")
-    env.close()
 
 
 if __name__ == "__main__":
