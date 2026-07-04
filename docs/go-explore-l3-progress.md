@@ -932,9 +932,53 @@ strict trade-off. Rescue ideas ranked in RESUME.md (demo-ensemble BC for
 tolerance, KL-anchored/interleaved self-imitation, scroll-depth reward shaping,
 entropy annealing).
 
-**Session 7 final flagship: `checkpoints/l3-consolidate6/lifeforce_ppo_final.zip`
-— 1736 steps / score 1314** (vs 891/190 at session start; +95% survival, 6.9×
-score; five hazards banked and consolidated; the sixth found-but-not-yet-learned).
+### Demo-ensemble ("mixed") BC — tube test passed, consolidation still eroded
+
+Rescue attempt for the gauntlet: 3 variant beams in parallel (bd120 / bd40 /
+bd80-seed1, fine durations) all verified — v3 (bd40) found **+440 with a
+209-step continuation → the gauntlet HAS a far side** (~step 2181 from level
+start). Pooled all 4 demos (1032 examples) into ONE BC (`l3-bc6`):
+**tube test PASSED** — past-death greedy survival from ALL entries
+(194/302/455 vs single-demo BC5's spike 138/389/26-worse-than-baseline).
+But consolidation from BC6 still eroded the corridor on the same schedule
+(intact at 50k, gone by 100k) AND failed to rebuild general play (the bigger
+BC dataset caused bigger collateral damage). **Conclusion: erosion is driven
+by PPO's objective (noisy rollouts die in the corridor → avoidance), not by
+seed coverage.** `tools/si_loop.sh` (interleaved PPO/BC-refresh) written as
+the next rung; paused in favor of the anti-jitter direction below.
+
+### Anti-jitter ("calm") — user insight; NEW FLAGSHIP at 1750
+
+User observation from live play: the ship vibrates (~64% of steps change
+movement direction; HOLD only 7%; near-uniform move distribution) — deadly in
+carve-a-path terrain like the step-1736 web. Two root causes: jitter is FREE
+under the reward, and PPO's entropy bonus actively pays for spread-out
+actions. (Also found: the beam vocab never contained HOLD — every demo we
+banked teaches constant motion. A HOLD-vocab beam retry was a negative result:
++53 only, the 6th move diluted beam coverage at the same width.)
+
+Added `REWARD_MOVE_COST` (per non-HOLD step) and `REWARD_CHURN` (per
+movement-change) knobs (config/env/train, unit-checked). Dose-response over
+three 500k fine-tunes from the flagship:
+
+| stage | churn | HOLD | full level |
+|---|---:|---:|---:|
+| flagship | 64.2% | 7.3% | 1736 |
+| calm1 (0.02/0.05, ent .03) | ~64% | ~12% | 1704–1713 |
+| calm2 (0.05/0.2, ent .015) | 57.1% | 19.1% | 1715 |
+| **calm3 (0.05/0.3, ent .01) @500k** | **47.6%** | **29.1%** | **1750** |
+
+**NEW FLAGSHIP: `checkpoints/l3-calm3/lifeforce_ppo_500000_steps.zip` — 1750
+steps / score 1311, 25% less vibration, HOLD 4× — calmer AND stronger** (x120
+probe up to 817-900 vs 732). Dose ceiling found: calm3's `final` collapsed
+into hold-forever (221 steps, 55% HOLD) — keep churn ≤0.2 during future skill
+formation. Strategic hypothesis for the gauntlet: low-churn training rollouts
+stay near the deterministic line, which may finally let the corridor
+robustify instead of eroding.
+
+**Session 7 flagship progression: 891/190 → 1736/1314 (go-explore cycles 1–5)
+→ 1750/1311 (anti-jitter)**; the sixth hazard's solution is banked (4 verified
+demos + BC6 tube seed) awaiting the calm-base re-attempt.
 
 ## Artifacts produced this session
 

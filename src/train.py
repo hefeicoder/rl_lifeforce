@@ -129,7 +129,7 @@ class LifeForceStatsCallback(BaseCallback):
 def build_vec_env(n_envs, load_norm=None, curriculum_glob=None, curriculum_mix=None,
                   frame_skip=None, reward_score_scale=None, reward_alive=None,
                   reward_death=None, reward_xpos=None, x_front_frac=None,
-                  reward_xmax=None):
+                  reward_xmax=None, reward_move_cost=None, reward_churn=None):
     # Order: SubprocVecEnv -> VecMonitor (logs RAW episode returns) -> VecNormalize
     # (normalizes only what the algorithm trains on; raw reward_components in info
     # are untouched, so TensorBoard reward/* stays interpretable).
@@ -141,7 +141,9 @@ def build_vec_env(n_envs, load_norm=None, curriculum_glob=None, curriculum_mix=N
                    reward_death=reward_death,
                    reward_xpos=reward_xpos,
                    x_front_frac=x_front_frac,
-                   reward_xmax=reward_xmax)
+                   reward_xmax=reward_xmax,
+                   reward_move_cost=reward_move_cost,
+                   reward_churn=reward_churn)
         for i in range(n_envs)]))
     if not C.NORM_REWARD:
         return base
@@ -214,6 +216,12 @@ def main():
                    help=f"override forward-position per-step reward (default {C.REWARD_XPOS})")
     p.add_argument("--x-front-frac", type=float, default=None,
                    help=f"override forward-position reward gate (default {C.X_FRONT_FRAC})")
+    p.add_argument("--reward-move-cost", type=float, default=None, dest="reward_move_cost",
+                   help=f"per-step penalty for movement != HOLD (default C.REWARD_MOVE_COST="
+                        f"{C.REWARD_MOVE_COST}); anti-jitter, prefers stillness")
+    p.add_argument("--reward-churn", type=float, default=None, dest="reward_churn",
+                   help=f"per-step penalty when the movement action CHANGES vs the previous "
+                        f"step (default C.REWARD_CHURN={C.REWARD_CHURN}); targets vibration")
     p.add_argument("--reward-xmax", type=float, default=None,
                    help=f"override episode-local x-ratchet reward scale (default {C.REWARD_XMAX})")
     p.add_argument("--gamma", type=float, default=None,
@@ -243,7 +251,9 @@ def main():
                          reward_death=args.reward_death,
                          reward_xpos=args.reward_xpos,
                          x_front_frac=args.x_front_frac,
-                         reward_xmax=args.reward_xmax)
+                         reward_xmax=args.reward_xmax,
+                         reward_move_cost=args.reward_move_cost,
+                         reward_churn=args.reward_churn)
     if args.curriculum_glob or args.curriculum_mix is not None:
         import glob as _glob
         pat = args.curriculum_glob or os.path.join(C.CURRICULUM_DIR, "*.state")
@@ -258,6 +268,8 @@ def main():
         "xpos": args.reward_xpos,
         "x_front_frac": args.x_front_frac,
         "xmax": args.reward_xmax,
+        "move_cost": args.reward_move_cost,
+        "churn": args.reward_churn,
     }
     reward_overrides = {k: v for k, v in reward_overrides.items() if v is not None}
     if reward_overrides:

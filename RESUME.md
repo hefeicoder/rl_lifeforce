@@ -140,7 +140,111 @@ _Full history: `docs/go-explore-l3-progress.md` (Sessions 1–7)._
     from the level start (too little entropy to rebuild the BC-damaged
     skills) and the corridor eroded anyway (389 → 73).
 
-## CYCLE 6 STATUS: BLOCKED ON ROBUSTIFICATION (auto-loop paused here)
+## CYCLE 6 RESCUE IN PROGRESS: demo-ensemble ("mixed") BC
+
+Three variant beams running IN PARALLEL (fine durations 2/4/8, cap 400,
+60 rounds, no early accept), for pooling with the banked bd80 line:
+
+- `l3_b1736_v2_bd120` — entry from bd120 (step ~1616), seed 0 → `logs/l3_b1736_v2_bd120.log`
+- `l3_b1736_v3_bd40`  — entry from bd40 (step ~1696), seed 0 → `logs/l3_b1736_v3_bd40.log`
+- `l3_b1736_v4_seed1` — entry from bd80, seed 1 (tie-break diversity) → `logs/l3_b1736_v4_seed1.log`
+
+ALL FOUR DEMOS BANKED (verified 2/2 each):
+- fine3 (bd80, seed 0): +231 → ~step 1964
+- v2 (bd120, seed 0): +65 → ~step 1810 (approach coverage)
+- v3 (bd40, seed 0): **+440 → ~step 2181, continuation 209 — the gauntlet HAS
+  a far side and this line reaches it**
+- v4 (bd80, seed 1): +342 → ~step 2075 (different path family)
+
+**Pooled BC (`l3-bc6`, 1032 examples, 20 epochs, loss 0.027): TUBE TEST PASSED**
+| seed | bd120 | bd80 | bd40 |
+|---|---|---|---|
+| no BC | 129 | 77 | 45 |
+| BC5 single | 138 | 389 | 26 (WORSE than baseline) |
+| **BC6 ensemble** | **194** | **302** | **455** |
+
+Past the death from all three entries — the coverage hypothesis holds at the
+BC stage. (Gotcha logged: piping the BC trainer through `head` SIGPIPE-kills
+it mid-run; write to a log file instead.)
+
+**`l3-consolidate9` (from BC6, mix 0.3, drill skipped): FAILED —
+DIAGNOSTIC.** Tube held at 50k (178/170/189) but eroded by 100k (~100/70/30);
+full-level never rebuilt (peak 572, score ~0-15 — the 1032-example BC damaged
+general play too much for one consolidation to repair). **Conclusion: erosion
+is the PPO objective's doing, not a seed-coverage problem.** Ensemble = better
+seed, unchanged erosion dynamics.
+
+**Interleaved self-imitation loop (`tools/si_loop.sh`, NEW TOOL): written,
+launched, then STOPPED BY USER at cycle 1** — superseded by the anti-jitter
+direction below. The tool remains available (8×[PPO 50k → BC refresh 3ep
+lr 1e-4]; cadence matches the measured erosion onset) if needed later.
+
+## NEW DIRECTION (user insight): anti-jitter / prefer stillness
+
+User observation from live play: the ship "vibrates" (random small moves)
+~70-80% of the time — deadly in carve-a-path terrain like the step-1736 web
+(shoot a channel, then STAY on it). Measured on the flagship (deterministic,
+full level): **churn 64%** (movement action changes vs prev step), **HOLD
+usage 7%**, near-uniform move distribution = no preference, pure vibration.
+
+Two root causes found:
+1. No reward reason to be still — jitter is free; PPO's entropy bonus actively
+   prefers spread-out actions where values are flat.
+2. **The beam vocab NEVER included HOLD (move 0)** — every demo we ever banked
+   is constant-motion, and BC amplifies it. A stay-put solution (if found)
+   would also be far more noise-TOLERANT → may dissolve the corridor-erosion
+   problem at the source.
+
+Changes landed (committed? not yet):
+- `config.py`: REWARD_MOVE_COST (per-step, non-HOLD) + REWARD_CHURN (per-step,
+  movement changed vs prev) — defaults 0.0, CLI-driven.
+- `env.py`: LifeForceWrapper computes r_move/r_churn (unit-checked exactly);
+  new `move`/`churn` entries in reward_components.
+- `train.py`: `--reward-move-cost`, `--reward-churn` flags.
+
+**`l3-calm1` (move 0.02 / churn 0.05, ent 0.03): dose too weak.** Churn
+63-65% (unchanged), HOLD 7→13-16% mid-run then faded. Harmless though: full
+1704-1713 at best ckpts, x120 hit the 900 probe cap repeatedly. Penalties are
+safe → escalate the dose.
+
+**`l3-calm2` (move 0.05 / churn 0.2, ent 0.015): WORKING, gradual.** Churn
+64.2 → 57.1% falling ~linearly (~1.5 pts/100k), HOLD 7 → 19%, full 1715-1719,
+x120 pinned at the 900 probe cap from 250k (BETTER than flagship's 732). Zero
+survival cost. Best: `checkpoints/l3-calm2/lifeforce_ppo_500000_steps.zip`.
+
+**`l3-calm3` (churn 0.3, ent 0.01): SUCCESS — NEW FLAGSHIP.**
+**`checkpoints/l3-calm3/lifeforce_ppo_500000_steps.zip` — full level 1750
+steps / score 1311, churn 47.6% (was 64.2%), HOLD 29.1% (was 7.3%), x120 817.**
+First policy to beat the old flagship's 1736 — calmness IS performance.
+CAUTION: calm3's `final` checkpoint collapsed into hold-forever (221 steps,
+55% HOLD) — churn 0.3 + ent 0.01 is the dose CEILING; do not escalate further.
+
+Dose-response record (full-level trajectory, deterministic):
+| stage | churn | HOLD | full |
+| flagship | 64.2% | 7.3% | 1736 |
+| calm1 (0.02/0.05, ent .03) | ~64% | ~12% | 1704-1713 |
+| calm2 (0.05/0.2, ent .015) | 57.1% | 19.1% | 1715 |
+| calm3 (0.05/0.3, ent .01) | 47.6% | 29.1% | **1750** |
+
+NEXT STEPS:
+1. User eyeball test: watch calm3-500k live, esp. the web section.
+2. Make `--reward-move-cost 0.05 --reward-churn 0.2` standard in future
+   drills/consolidations (0.2 not 0.3 during skill formation — leave margin
+   below the collapse ceiling).
+3. Re-attempt the step-1736 gauntlet from the CALM base: capture fresh
+   frontier states from calm3-500k's death (~step 1750), beam (fine durations,
+   bd40-style close start), BC ensemble if needed, drill+consolidate WITH the
+   penalties on. Hypothesis: a low-churn policy's rollouts stay near its
+   deterministic line → the corridor finally robustifies instead of eroding.
+2. **`l3_b1736_hold` beam: DONE — negative result.** Accepted only +53
+   (38-step script, REPRODUCED 2/2, `demos/l3_b1736_hold.npz`) and the final
+   line contains NO HOLD segments; beam exhausted at round 30 (vs v3's +440
+   at 60). Mechanism: 6th move inflated branching 20%/segment at the same
+   beam width → shallower coverage. **Lesson: expanding the vocab needs a
+   wider beam (e.g. --beam 16) to be a fair test.** The stay-put hypothesis
+   now rides on the reward-side test (calm1).
+
+## CYCLE 6 STATUS: BLOCKED ON ROBUSTIFICATION (superseded by the rescue above)
 
 **Flagship: `checkpoints/l3-consolidate6/lifeforce_ppo_final.zip` (1736/1314).**
 

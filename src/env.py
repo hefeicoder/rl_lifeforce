@@ -130,7 +130,7 @@ class LifeForceWrapper(gym.Wrapper):
 
     def __init__(self, env, reward_score_scale=None, reward_alive=None,
                  reward_death=None, reward_xpos=None, x_front_frac=None,
-                 reward_xmax=None):
+                 reward_xmax=None, reward_move_cost=None, reward_churn=None):
         super().__init__(env)
         self._captured = False
         self._reward_score_scale = (
@@ -141,6 +141,10 @@ class LifeForceWrapper(gym.Wrapper):
         self._reward_xpos = C.REWARD_XPOS if reward_xpos is None else reward_xpos
         self._x_front_frac = C.X_FRONT_FRAC if x_front_frac is None else x_front_frac
         self._reward_xmax = C.REWARD_XMAX if reward_xmax is None else reward_xmax
+        self._reward_move_cost = (
+            C.REWARD_MOVE_COST if reward_move_cost is None else reward_move_cost
+        )
+        self._reward_churn = C.REWARD_CHURN if reward_churn is None else reward_churn
 
     def _ram(self):
         return self.env.unwrapped.get_ram()
@@ -186,7 +190,9 @@ class LifeForceWrapper(gym.Wrapper):
         self._prev_pu = self._read_powerups(ram)
         # running per-episode reward breakdown
         self._ep = {"score": 0.0, "alive": 0.0, "death": 0.0, "clear": 0.0,
-                    "powerup": 0.0, "xpos": 0.0, "xmax": 0.0}
+                    "powerup": 0.0, "xpos": 0.0, "xmax": 0.0,
+                    "move": 0.0, "churn": 0.0}
+        self._prev_move = None    # movement index of the previous step (anti-jitter)
         # per-episode x diagnostics (true max, not terminal — see play.py mislabel).
         # x_pos is SCREEN x (15..232), a positioning proxy, not world progress.
         x0 = int(ram[C.ADDR_X_POS])
@@ -267,7 +273,18 @@ class LifeForceWrapper(gym.Wrapper):
         if self._reward_xpos and x_frac >= self._x_front_frac:
             r_xpos = self._reward_xpos
 
-        total = r_score + r_alive + r_death + r_clear + r_powerup + r_xpos + r_xmax
+        # 2d) anti-jitter: stillness is free, movement/vibration costs a little.
+        # HOLD (move 0) fires while keeping position — in carve-a-path terrain
+        # (e.g. the step-1736 web) staying on the cleared line is the skill.
+        move = int(np.asarray(action).ravel()[0])
+        r_move = -self._reward_move_cost if (self._reward_move_cost and move != 0) else 0.0
+        r_churn = 0.0
+        if self._reward_churn and self._prev_move is not None and move != self._prev_move:
+            r_churn = -self._reward_churn
+        self._prev_move = move
+
+        total = (r_score + r_alive + r_death + r_clear + r_powerup + r_xpos
+                 + r_xmax + r_move + r_churn)
         self._ep["score"] += r_score
         self._ep["alive"] += r_alive
         self._ep["death"] += r_death
@@ -275,6 +292,8 @@ class LifeForceWrapper(gym.Wrapper):
         self._ep["powerup"] += r_powerup
         self._ep["xpos"] += r_xpos
         self._ep["xmax"] += r_xmax
+        self._ep["move"] += r_move
+        self._ep["churn"] += r_churn
         if terminated or truncated:
             info["reward_components"] = dict(self._ep)
             info["ep_steps"] = self._steps   # survival time = progress proxy (auto-scroller)
@@ -351,7 +370,8 @@ def find_recorder(env):
 def make_env(render_mode=None, preprocess=True, record_av=False, curriculum=False, seed=0,
              curriculum_glob=None, curriculum_mix=None, frame_skip=None,
              reward_score_scale=None, reward_alive=None, reward_death=None,
-             reward_xpos=None, x_front_frac=None, reward_xmax=None):
+             reward_xpos=None, x_front_frac=None, reward_xmax=None,
+             reward_move_cost=None, reward_churn=None):
     """Build one fully-wrapped Life Force env (a thunk-friendly constructor).
 
     record_av=True inserts a FrameAudioRecorder inside the frame-skip so play.py
@@ -381,6 +401,8 @@ def make_env(render_mode=None, preprocess=True, record_av=False, curriculum=Fals
         reward_xpos=reward_xpos,
         x_front_frac=x_front_frac,
         reward_xmax=reward_xmax,
+        reward_move_cost=reward_move_cost,
+        reward_churn=reward_churn,
     )
     if preprocess:
         env = GrayscaleObservation(env, keep_dim=False)
@@ -394,7 +416,8 @@ def make_env(render_mode=None, preprocess=True, record_av=False, curriculum=Fals
 def make_thunk(seed=0, render_mode=None, curriculum=True,
                curriculum_glob=None, curriculum_mix=None, frame_skip=None,
                reward_score_scale=None, reward_alive=None, reward_death=None,
-               reward_xpos=None, x_front_frac=None, reward_xmax=None):
+               reward_xpos=None, x_front_frac=None, reward_xmax=None,
+               reward_move_cost=None, reward_churn=None):
     """Return a callable that builds a seeded env (for SB3 vec env constructors).
     Training envs use curriculum=True so they can start from saved hard-section
     states; seed varies both env seeding and curriculum sampling per env.
@@ -411,7 +434,9 @@ def make_thunk(seed=0, render_mode=None, curriculum=True,
                        reward_death=reward_death,
                        reward_xpos=reward_xpos,
                        x_front_frac=x_front_frac,
-                       reward_xmax=reward_xmax)
+                       reward_xmax=reward_xmax,
+                       reward_move_cost=reward_move_cost,
+                       reward_churn=reward_churn)
         env.reset(seed=seed)
         return env
     return _init

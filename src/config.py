@@ -106,6 +106,12 @@ REWARD_OVERSPEED = -5.0    # penalty per speed level gained ABOVE MAX_SPEED (muc
 # (gauntlet #1: front forfeits all future survival reward, so it stays back there on
 # its own). That yields LEARNED dynamic positioning — better than a hard-coded "back"
 # or "front". CAUTION: too large re-breaks gauntlet #1; watch best_steps. 0.0 disables.
+# Anti-jitter (measured: flagship churns its movement action 64% of steps and
+# HOLDs only 7% — near-uniform vibration, deadly in carve-a-path terrain like
+# the step-1736 web). Two knobs, defaults OFF; enable per-run via train.py flags:
+REWARD_MOVE_COST = 0.0     # per-step penalty for any movement != HOLD (prefer stillness)
+REWARD_CHURN = 0.0         # per-step penalty when the movement CHANGES vs the previous
+                           # step (targets vibration; sustained moves and HOLD are free)
 REWARD_XPOS = 0.05         # per-step bonus when in/forward of the X_FRONT_FRAC line
 # Lowered 0.75 -> 0.25 (x >= ~69): the ratchet got the ship to TRY forward (max_x
 # 29->82) but it darts out and RETREATS (mean_x flat ~30, terminal_x ~16). This

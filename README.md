@@ -184,6 +184,55 @@ the beam vocab, cold frame-stack on state reload) live in
 [`docs/go-explore-l3-progress.md`](docs/go-explore-l3-progress.md); live run
 state lives in `RESUME.md`.
 
+### What each stage does to the policy
+
+There is **one policy network** (CNN feature extractor + action head + value
+head); every stage below rewrites the *same weights* — checkpoints are just
+snapshots. The stages differ in **where the gradient comes from**, and
+therefore in what property each one buys:
+
+| stage | gradient source | effect on the policy |
+|---|---|---|
+| Search | none (pure emulator planning) | nothing — produces a *verified demo*, i.e. data, not learning |
+| Seed (BC) | supervised loss on demo (frame → action) pairs | tilts action logits so the demo's moves become the greedy choice in demo-like states — implants a maneuver exploration would never find. Side effect: shared CNN features bend elsewhere too, temporarily breaking unrelated skills |
+| Drill (PPO, `mix 1.0`) | reward, episodes start at the new hazard **+ every old hazard's lead-in** | robustifies the implanted maneuver under action noise (the demo line alone is brittle) while rehearsing old skills so they're re-carved, not forgotten. Never sees the level start — cold-start play degrades here *by design* |
+| Consolidate (PPO, `mix 0.3`) | reward, 70% of episodes from the true level start | stitches the specialist skills into one continuous cold-start run; rebuilds whatever BC/drill broke; the 30% hazard starts keep the skills from washing out |
+| Sweep | none (deterministic evaluation) | selects, doesn't train: every checkpoint is scored on all hazard probes + the full level. Skills peak and wash out at different times mid-run, so **`final` is usually not the best checkpoint** |
+
+Coaching analogy: search = the coach working out the move on the whiteboard;
+BC = the athlete copying the demonstrated move; drill = repping it in isolation
+until it survives variation; consolidation = integrating it into the full
+routine; sweep = reviewing the tape and picking the best performance rather
+than assuming the last take was it.
+
+### Stage budgets and exit criteria (measured)
+
+| stage | data consumed | duration | exit test |
+|---|---|---|---|
+| Search | 120–160 rollouts/round (beam 8 × vocab); 13 rounds ≈ 2k rollouts, hard sections up to ~7k | 8–35 min | plan beats greedy baseline by **≥30 steps** AND replays 2/2 from fresh reloads; pinned at +0 after ~13 rounds → escalate (finer `--durations`, closer start, more `--rounds`), don't wait |
+| Seed (BC) | dataset = demo frames (76–267 examples); 20 epochs ≈ **20–100 gradient updates** | seconds | loss converged (~0.01–0.2) AND greedy probe from the hazard start clearly passes the death the demo dodges; demo <~30 steps → skip stage |
+| Drill | **500k env steps** (mix 1.0), checkpoint every 50k | ~11 min (MPS) | sweep finds a checkpoint with the new-hazard probe robust (≳ demo total) and retention acceptable — the peak is usually mid-run |
+| Consolidate | **500k env steps** (mix 0.3) | ~11 min | sweep shows full-level ≥ previous flagship with all hazard probes above bar; ~half the cycles need a second 500k round |
+| Sweep | no training; ~55 deterministic eval rollouts (11 ckpts × probes + full level) | 2–4 min | crown the best-balanced checkpoint |
+
+Full cycle ≈ **1–1.2M env steps + a few thousand search rollouts + <100 BC
+updates ≈ 30–45 min**. Two properties worth noting: the information economics
+are lopsided (BC's ~100 supervised updates on verified examples implant what
+PPO's 500k steps can't; PPO's 500k steps robustify what BC can't) — and every
+exit criterion is an **evaluation, not a step count**. The step budgets are
+generous envelopes; the gate is always a deterministic probe. A cycle can
+complete all its budgets while failing every exit test (see the step-1736
+gauntlet), and only the probes catch it.
+
+Two measured caveats that motivate the stage boundaries: BC and PPO can
+*oppose* each other — if a discovered corridor has near-zero action tolerance,
+PPO's own noisy rollouts die in it and its gradient unlearns exactly what BC
+implanted (see the step-1736 gauntlet in the progress doc; the fix under test
+is pooling several demo *variants* into one BC dataset so nearby states are
+also covered). And BC dose must match demo size — 20 epochs on a 4-frame demo
+distorts far more than it teaches, so tiny dodges skip BC entirely and let the
+drill's exploration find them.
+
 ## How it works (design)
 
 **Training:** PPO (`CnnPolicy` / NatureCNN) on **16 parallel emulators**
