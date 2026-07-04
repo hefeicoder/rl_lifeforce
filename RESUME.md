@@ -263,14 +263,36 @@ session start was 891 — >2x). Corridor probes held through BOTH 500k
 consolidations — the no-drill calm recipe does not erode. Note: score 1212 vs
 the old 1311 (slightly different path); steps are the progress metric.
 
-## Next cycle (8): step ~1805 death
-Recipe (now standard): capture `--before-death 120 80 40` (NEW prefix, never
-reuse a beam --name!) from calm-cons2/final → beam from bd80 with
-`--moves 4 6 8 1 2 0 --beam 16 --durations 2 4 8 --accept-cont 99999` →
-BC 20ep if script ≥30 steps (probe from the TRUE lead-in) → consolidate
-(mix 0.3, ent 0.015, move 0.05, churn 0.2) x2 rounds → sweep (churn/HOLD +
-all corridor probes + full). No drill stage. Watch for the boss: scroll
-stops / stage_num changes ≈ arena (check RAM 0x2F behavior near new deaths).
+## CYCLE 8 (branch `cycle8-boss-approach`, merged main at d4daf7a) — RUNNING
+
+Boss check at the 1753 death: scroll clock STILL TICKING (RAM 0x2F advancing
+through death; stage_num 0) → still terrain, boss further out. Score frozen
+at 1212 since ~step 1500 = hazard-dense, enemy-light precision stretch.
+
+Frontier captured: `states/l3_d1753_bd{120,80,40}.state` (from
+calm-cons2/final's 1753-step run).
+
+CYCLE 8 COMPLETE:
+- Beam: +93 verified (180 total ≈ step 1853), 66-step HOLD-rich script →
+  `demos/l3_d1753_beam.npz`.
+- BC8: 87 → 98 (past death). Consolidate ×2 (calm recipe): corridors held
+  ALL RUN both rounds (4th consecutive erosion-free consolidation).
+- **NEW FLAGSHIP: `checkpoints/l3-c8-cons2/lifeforce_ppo_final.zip` —
+  1762 steps / score 1218, churn 37.6%, all probes healthy** (d1753 92,
+  c1750 108, x120 900-cap). c8-cons2/50k briefly hit **1810** (absolute
+  record) but with x120 broken — footnote only.
+- Caveats: smallest cycle gain yet (+9 flagship-to-flagship); full-level
+  plateaus ~1770 while the demo line reaches ~1853 — a fresh hazard sits
+  right behind the banked corridor. x120 probe is BIMODAL across checkpoints
+  (35↔900) — the pinch behavior toggles between two modes; worth a dedicated
+  look if it persists.
+
+## Next: CYCLE 9 (death ~1762-1770)
+Standard calm recipe. Note the shrinking cycle gains (+93 demo → +9 flagship):
+if cycle 9 also converts poorly, consider (a) longer consolidation, (b) demo
+ensemble (2-3 variants like cycle 6's rescue, now cheap since the recipe
+holds), or (c) check whether the ~1770 hazard needs a deeper script
+(--script-cap 600, more rounds). Boss watch stays on (scroll clock at death).
 2. **`l3_b1736_hold` beam: DONE — negative result.** Accepted only +53
    (38-step script, REPRODUCED 2/2, `demos/l3_b1736_hold.npz`) and the final
    line contains NO HOLD segments; beam exhausted at round 30 (vs v3's +440
