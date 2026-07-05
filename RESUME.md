@@ -294,8 +294,25 @@ verified) → NO BC (tiny-dodge rule) → consolidate ×2 (calm recipe).
 churn 35.5%.** Record: **1856** (c9-cons2/500k, x120 weak). +74
 flagship-to-flagship — conversion recovered after cycle 8's +9.
 
-## CYCLE 10 (death ~1836) — boss check: scroll STILL ticking at death (terrain).
-Standard calm recipe from c9-cons2/400k; capture prefix `l3_f1836`.
+## CYCLE 10 (death ~1836): FLAT — flagship unchanged
+Boss check: scroll still ticking at 1836 (terrain). Beam banked only a
+14-step micro-dodge (+32, `demos/l3_f1836_beam.npz`); two calm
+consolidations peaked at 1830-1831 — **did not beat c9's 1836.** The
+1820-1856 band has now absorbed ~1M steps of consolidation without moving.
+
+**FLAGSHIP remains `checkpoints/l3-c9-cons2/lifeforce_ppo_400000_steps.zip`
+(1836/1215).** Record remains 1856 (c9-cons2/500k).
+
+## PAUSED FOR DIRECTION — options for the ~1850 plateau:
+(a) Deeper script: beam from bd80 with --script-cap 600+ and more rounds —
+    maybe the zone needs a long carried line like the 1736 web (v3-style).
+(b) Ensemble: 2-3 demo variants (bd120/seed-1) pooled BC — worked for
+    coverage before; cheap now.
+(c) Investigate first: trace WHERE the 1830 runs die vs what the demos dodge
+    (are we solving the wrong hazard? is trajectory divergence eating the
+    dodge?), and check probe oscillation (44↔160 on e1762 across ckpts).
+(d) Longer consolidations (1M steps/round) — the band may just need more
+    rebuild time per skill.
 2. **`l3_b1736_hold` beam: DONE — negative result.** Accepted only +53
    (38-step script, REPRODUCED 2/2, `demos/l3_b1736_hold.npz`) and the final
    line contains NO HOLD segments; beam exhausted at round 30 (vs v3's +440
