@@ -368,19 +368,21 @@ from level start**, continuation ~280 (healthy far side). The armed policy
 sails through terrain that capped every unarmed search at +107. USER
 HYPOTHESIS (options widen the channels): CONFIRMED decisively.
 
-## RESUME HERE TOMORROW (user instruction: paused end-of-day)
-1. BC the demo: `python -m tools.self_imitation --model
-   checkpoints/l3-c11-cons2/lifeforce_ppo_350000_steps.zip --demos
-   demos/l3_h1462_beam.npz --out checkpoints/l3-bc10/lifeforce_ppo_bc20.zip
-   --epochs 20` → probe greedy from `states/l3_h1462_bd80.state` (want past ~80).
-2. Consolidate ×2 (armed, AUTO_BUY is on in config): mix 0.3, ent 0.015,
-   half-dose penalties (churn 0.1, move 0.02), curriculum
-   {l3_h1462_bd80, farm_v6 handoff, d1753_bd80, x120} (make
-   states/l3_h1462_curriculum/). Sweep: TRUE full-level (single-life),
-   loadout@1200, corridor probes, churn/HOLD. Bar: full ≥1462 → target ~1800+.
-3. Boss check at the new death (scroll clock 0x2F).
-4. All work committed on branch `cycle8-boss-approach`; PR #1 merged earlier;
-   consider a new PR for cycles 8-12 when a milestone lands.
+CYCLE 12 COMPLETE (the biggest cycle of the project):
+- BC10: 80 → 288 greedy from the true lead-in (2nd-best transfer ever).
+- Consolidate ×2 (armed, half-dose): corridor NON-ERODING (h1462 probe
+  232-401 throughout both runs), full-level rebuilt then surpassed.
+- **NEW TRUE FLAGSHIP: `checkpoints/l3-c12-cons2/lifeforce_ppo_final.zip` —
+  1778 single-life steps / score 1374 / churn 47.8% / mis+opt fielded /
+  corridor 401 / all retention probes healthy.** +316 vs the honest 1462.
+- Boss check at 1778: scroll still ticking, stage 0 — terrain. The +405 demo
+  line reached ~1867, so the next hazard sits between 1778 and ~1900.
+
+## CYCLE 13: standard armed recipe from c12-cons2/final
+capture (prefix `l3_i1778`, bd 120/80/40, verify armed) → beam from bd80
+(HOLD vocab, beam 16, fine durations) → BC if ≥30 steps → consolidate ×2
+(armed, half-dose) → sweep (single-life, loadout@1200, corridors) →
+boss check. Stage-1 boss expected somewhere ~2100-2550 steps.
 
 ## (older) PAUSED FOR DIRECTION — options for the ~1850 plateau:
 (a) Deeper script: beam from bd80 with --script-cap 600+ and more rounds —
