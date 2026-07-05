@@ -378,11 +378,17 @@ CYCLE 12 COMPLETE (the biggest cycle of the project):
 - Boss check at 1778: scroll still ticking, stage 0 — terrain. The +405 demo
   line reached ~1867, so the next hazard sits between 1778 and ~1900.
 
-## CYCLE 13: standard armed recipe from c12-cons2/final
-capture (prefix `l3_i1778`, bd 120/80/40, verify armed) → beam from bd80
-(HOLD vocab, beam 16, fine durations) → BC if ≥30 steps → consolidate ×2
-(armed, half-dose) → sweep (single-life, loadout@1200, corridors) →
-boss check. Stage-1 boss expected somewhere ~2100-2550 steps.
+CYCLE 13 COMPLETE: beam banked an 18-step dodge (+83, no BC) → consolidate
+×2 (armed, half-dose). **NEW FLAGSHIP: `checkpoints/l3-c13-cons2/lifeforce_ppo_final.zip`
+— 1836 single-life / score 1362** (records: 1854 full @c13-cons1/300k,
+score 1483 @c13-cons1/250k). All probes healthy (i1778 138, h1462 419,
+x120 784), mis+opt fielded. Boss check at 1836: scroll still ticking —
+terrain. Honest trajectory: 1462 → 1778 → 1836.
+
+## CYCLE 14: standard armed recipe from c13-cons2/final
+capture (prefix `l3_j1836`, bd 120/80/40, verify armed) → beam from bd80 →
+BC if ≥30 → consolidate ×2 (armed, half-dose) → sweep → boss check.
+Stage-1 boss expected ~2100-2550 steps; we're ~260-700 short.
 
 ## (older) PAUSED FOR DIRECTION — options for the ~1850 plateau:
 (a) Deeper script: beam from bd80 with --script-cap 600+ and more rounds —
