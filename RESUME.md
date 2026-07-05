@@ -345,12 +345,42 @@ CYCLE 11 COMPLETE:
   held.** Half-dose penalties (churn 0.1/move 0.02) are the new standard while
   farming coexists with calm.
 
-## CYCLE 12 (RUNNING): the ARMED plateau attack
-Frontier captured from the armed flagship: `states/l3_g1846_bd{120,80,40}`
-— first captures ever WITH a loadout in-state. Beam running from bd80
-(standard calm recipe vocab + HOLD): `logs/l3_g1846_beam.log`. Hypothesis
-(user): Missile+Option widen the carved channels → the 1820-1860 plateau
-breaks. Boss check at the next frontier (scroll clock at death).
+## THE 1UP BUG (found via farming; env FIXED; records restated)
+Farming pushed scores past the 1UP threshold (~score 1200, ~step 1400);
+the death check (`lives < start_lives`) then missed the next death and
+episodes continued on an UNARMED RESPAWN (~380 ghost steps). Fixed in
+env.py: death = any lives DECREASE. TRUE single-life records: c8 1446,
+c9 1444, **c11-armed 1462 (best)**. The "1820-1860 plateau" was mostly the
+respawn tail, and cycles 10-12's first captures (f1836/g1846) were
+post-death ghost states — that's why those beams only found micro-dodges.
+GOTCHA: captures made before the fix are suspect; only `l3_h1462_*` and
+older (<step ~1400) captures are clean.
+
+## CYCLE 12 — TRUE armed frontier attack: BEAM BANKED, PAUSED FOR USER
+Clean captures from the armed flagship's true death (1462):
+`states/l3_h1462_bd{120,80,40}` (bd80 = step 1382, verified armed:
+missile+option in-state, pu=13).
+
+**BEAM RESULT (the project's largest): +405 verified 2/2** —
+`demos/l3_h1462_beam.npz` (~230-step script, HOLD-sprinkled) +
+`states/l3_h1462_beam.state`. 485 total from bd80 ≈ **step 1867 single-life
+from level start**, continuation ~280 (healthy far side). The armed policy
+sails through terrain that capped every unarmed search at +107. USER
+HYPOTHESIS (options widen the channels): CONFIRMED decisively.
+
+## RESUME HERE TOMORROW (user instruction: paused end-of-day)
+1. BC the demo: `python -m tools.self_imitation --model
+   checkpoints/l3-c11-cons2/lifeforce_ppo_350000_steps.zip --demos
+   demos/l3_h1462_beam.npz --out checkpoints/l3-bc10/lifeforce_ppo_bc20.zip
+   --epochs 20` → probe greedy from `states/l3_h1462_bd80.state` (want past ~80).
+2. Consolidate ×2 (armed, AUTO_BUY is on in config): mix 0.3, ent 0.015,
+   half-dose penalties (churn 0.1, move 0.02), curriculum
+   {l3_h1462_bd80, farm_v6 handoff, d1753_bd80, x120} (make
+   states/l3_h1462_curriculum/). Sweep: TRUE full-level (single-life),
+   loadout@1200, corridor probes, churn/HOLD. Bar: full ≥1462 → target ~1800+.
+3. Boss check at the new death (scroll clock 0x2F).
+4. All work committed on branch `cycle8-boss-approach`; PR #1 merged earlier;
+   consider a new PR for cycles 8-12 when a milestone lands.
 
 ## (older) PAUSED FOR DIRECTION — options for the ~1850 plateau:
 (a) Deeper script: beam from bd80 with --script-cap 600+ and more rounds —
