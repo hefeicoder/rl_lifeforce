@@ -21,6 +21,14 @@ ADDR_STAGE_VERTICAL = 0x40  # "Is Stage Vertical?" — flips 0->1 on the vertica
 # advances), then spend to gain upgrades. Caps are inherent (e.g. options <= 2).
 ADDR_POWERBAR = 0x78       # power-bar cursor (1=speed,2=missile,3=ripple,4=laser,5=option,6=force field)
 SPEED_SLOT = 1             # cursor value where activating gives Speed (verified)
+MISSILE_SLOT = 2           # cursor value for Missile (verified via farm beam ACT at bar=2)
+OPTION_SLOT = 5            # cursor value for Option (verified via auto-buy at bar=5)
+# AUTO_BUY: the Discretizer presses A automatically at MISSILE_SLOT (if no
+# missile) and OPTION_SLOT (if <2 options). The meter strategy is fixed, so —
+# like hardwiring fire on B — we don't ask the agent to learn purchase timing;
+# it only has to learn to EAT capsules (which reward shaping + the farm demo
+# teach). Measured before this flag: policies banked 6 capsules and never spent.
+AUTO_BUY = True
 ADDR_SPEED = 0x80          # speed level (up to 10)
 ADDR_SHIELD = 0x82         # Force Field / shield strength (starts at 5 hits when activated)
 ADDR_MISSILE = 0x86        # Missile equipped

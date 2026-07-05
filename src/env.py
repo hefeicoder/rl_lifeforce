@@ -95,8 +95,21 @@ class Discretizer(gym.ActionWrapper):
         move_idx, activate = int(act[0]), int(act[1])
         ram = self.env.unwrapped.get_ram()
         arr = self._moves[move_idx].copy()
-        if activate and not self._would_overspeed(ram):
+        # Under AUTO_BUY the agent's activate head is IGNORED (vestigial, like the
+        # hardwired B): random A presses were measured spending the banked meter at
+        # whatever slot the cursor happened to sit on (e.g. Laser at 4).
+        if activate and not C.AUTO_BUY and not self._would_overspeed(ram):
             arr[self._activate_idx] = 1
+        # AUTO_BUY: the meter strategy is fixed (Missile once, then Options) and
+        # timing an A press at the exact cursor stop is a needle-thin credit
+        # assignment RL never solved (measured: a policy that banks 6 capsules and
+        # never spends). Same design language as hardwiring B: no interesting
+        # decision, so don't ask the agent to learn it.
+        if C.AUTO_BUY:
+            bar = int(ram[C.ADDR_POWERBAR])
+            if ((bar == C.MISSILE_SLOT and int(ram[C.ADDR_MISSILE]) == 0)
+                    or (bar == C.OPTION_SLOT and int(ram[C.ADDR_OPTIONS]) < 2)):
+                arr[self._activate_idx] = 1
         if self._too_far_front(ram):
             arr[self._right_idx] = 0   # positional cap: no advancing past the back zone
         return arr
