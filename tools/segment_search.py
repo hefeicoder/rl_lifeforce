@@ -47,6 +47,9 @@ DEFAULT_DURS = [4, 8, 12, 16]          # agent-steps per segment (frame-skip 4)
 GREEDY_MOVE = -1                       # pseudo-move: follow the greedy policy for the
                                        # segment (lets beam search ride the policy where
                                        # it is already right and script only corrections)
+ACT_MOVE = -2                          # pseudo-move: HOLD + press A for one step (buy the
+                                       # power-up under the meter cursor). One vocab entry,
+                                       # so activation costs +1 branching, not 2x.
 
 
 def load_state(path):
@@ -96,7 +99,13 @@ def rollout(env, start, model, plan, warmup, cont_cap, record=False):
                 break
             if move == GREEDY_MOVE:               # pseudo-move: follow the policy for
                 a, _ = model.predict(obs, deterministic=True)  # d steps (deterministic,
-                _step(a)                          # recomputed per replay -> reproducible)
+                a = np.asarray(a).ravel()         # recomputed per replay -> reproducible)
+                # suppress the policy's OWN activate presses inside GREEDY segments:
+                # ride its movement (chase/kill/collect) but never let it spend the
+                # meter — all purchases go through deliberate ACT segments.
+                _step(np.array([int(a[0]), 0]))
+            elif move == ACT_MOVE:                # pseudo-move: HOLD + press A (activate)
+                _step(np.array([0, 1]))
             else:
                 _step(np.array([move, 0]))
         if done:
@@ -104,6 +113,14 @@ def rollout(env, start, model, plan, warmup, cont_cap, record=False):
     if not done:
         seg_end_state = env.unwrapped.em.get_state()
     survived_segments = not done
+    # loadout AT THE HANDOFF (end of script): this is what the script achieved.
+    # Measured here, not at episode end — the greedy continuation may waste the
+    # banked capsules (e.g. A-mashing buys Speed), which would erase the ranking
+    # signal for plans that farm correctly.
+    ram = env.unwrapped.get_ram()
+    loadout = {"powerbar": int(ram[C.ADDR_POWERBAR]), "missile": int(ram[C.ADDR_MISSILE]),
+               "options": int(ram[C.ADDR_OPTIONS]), "shield": int(ram[C.ADDR_SHIELD]),
+               "speed": int(ram[C.ADDR_SPEED])}
 
     rec["on"] = False
     c = 0
@@ -112,9 +129,20 @@ def rollout(env, start, model, plan, warmup, cont_cap, record=False):
         _step(a)
         c += 1
 
+    # pu scoring (all three rules measured, not theoretical): speed weighs 0 —
+    # it's the cheapest slot and a loadout-ranked beam farms it greedily,
+    # burning capsules needed for Missile/Options. Powerbar weighs +1 as a
+    # PROGRESS BREADCRUMB — without it, an eaten-but-unspent capsule scores
+    # nothing and the search must find a complete eat->eat->ACT chain blind.
+    # Purchase weights are set so completing a purchase strictly beats hoarding:
+    # missile 5 > 2 banked; option 8 > 5 banked; shield 7 > 6 banked.
+    pu = (loadout["powerbar"] + 5 * loadout["missile"] + 8 * loadout["options"]
+          + 7 * loadout["shield"])
+
     return {"steps": steps, "max_x": max_x, "cleared": cleared,
             "survived_segments": survived_segments, "handoff": seg_end_state,
-            "obs": d_obs, "acts": d_acts, "plan": plan}
+            "obs": d_obs, "acts": d_acts, "plan": plan,
+            "loadout": loadout, "pu": pu}
 
 
 def beam_search(env, start, model, args, base):
@@ -129,6 +157,17 @@ def beam_search(env, start, model, args, base):
     rng = np.random.default_rng(args.seed)
     moves = list(args.moves) + ([GREEDY_MOVE] if args.greedy_move else [])
     vocab = list(itertools.product(moves, args.durations))
+    if args.activate:
+        vocab.append((ACT_MOVE, 1))                # single extra entry: press A once
+    pu_mode = args.rank_powerups
+
+    def key(r, cont):
+        # pu-mode: loadout first (that's the objective), then survival, then max_x.
+        # normal: total survival first (steps = level progress in an auto-scroller).
+        if pu_mode:
+            return (r["cleared"], r["pu"], r["steps"], r["max_x"])
+        return (r["cleared"], r["steps"], r["max_x"])
+
     beams = [[]]                                   # surviving prefixes (round 0: empty)
     best, t0 = None, time.perf_counter()
     for rnd in range(args.rounds):
@@ -141,44 +180,56 @@ def beam_search(env, start, model, args, base):
                 if not r["survived_segments"]:
                     continue                        # died in-script: prune this branch
                 cont = r["steps"] - script_len - args.warmup
-                scored.append((r["cleared"], r["steps"], r["max_x"], rng.random(), plan, r, cont))
+                scored.append((key(r, cont), rng.random(), plan, r, cont))
         if not scored:
             print(f"  round {rnd+1}: every extension died in-script — beam exhausted")
             break
-        scored.sort(reverse=True)
+        scored.sort(key=lambda s: (s[0], s[1]), reverse=True)
         top = scored[0]
-        if best is None or (top[0], top[1], top[2]) > (best[0], best[1], best[2]):
+        if best is None or top[0] > best[0]:
             best = top
-        beams = [s[4] for s in scored[:args.beam]]
+        beams = [s[2] for s in scored[:args.beam]]
         el = time.perf_counter() - t0
+        tr = top[3]
+        pu_str = f" pu={tr['pu']} {tr['loadout']}" if pu_mode else ""
         print(f"  round {rnd+1}/{args.rounds}: {len(scored)} survivors, best total "
-              f"{top[1]} steps (+{top[1]-base['steps']}) max_x={top[2]} cont={top[6]}  "
-              f"[{fmt_plan(top[4])}]  ({el:.0f}s)")
+              f"{tr['steps']} steps (+{tr['steps']-base['steps']}) max_x={tr['max_x']} "
+              f"cont={top[4]}{pu_str}  [{fmt_plan(top[2])}]  ({el:.0f}s)")
         # accept early once the handoff itself is healthy: script survived AND the
-        # greedy continuation lives long past the danger window
-        if top[6] >= args.accept_cont and top[1] - base["steps"] >= args.min_gain:
-            print(f"  continuation {top[6]} >= {args.accept_cont}: accepting")
+        # greedy continuation lives long past the danger window (pu-mode: also
+        # require an actual loadout gain — that's the point of the search)
+        gained = (tr["pu"] > base["pu"]) if pu_mode else (tr["steps"] - base["steps"] >= args.min_gain)
+        if top[4] >= args.accept_cont and gained:
+            print(f"  continuation {top[4]} >= {args.accept_cont}: accepting")
             best = top
             break
         if sum(d for _, d in beams[0]) + args.warmup >= args.script_cap:
             print(f"  script length reached --script-cap {args.script_cap}")
             break
-    if best is None or best[1] - base["steps"] < args.min_gain:
+    if best is None:
+        return None
+    br = best[3]
+    if pu_mode:
+        # accept on loadout gain with survival not collapsing vs baseline
+        if br["pu"] <= base["pu"] or br["steps"] < base["steps"] - args.pu_step_slack:
+            return None
+    elif br["steps"] - base["steps"] < args.min_gain:
         return None
     # verify: 2 independent fresh reloads must reproduce, then record the demo
-    plan = best[4]
+    plan = best[2]
     v1 = rollout(env, start, model, plan, args.warmup, args.continuation)
     v2 = rollout(env, start, model, plan, args.warmup, args.continuation, record=True)
-    ok = {(v["steps"], v["max_x"]) for v in (v1, v2)} == {(best[1], best[2])}
+    ok = {(v["steps"], v["max_x"], v["pu"]) for v in (v1, v2)} == {(br["steps"], br["max_x"], br["pu"])}
     verdict = ("REPRODUCED 2/2" if ok
-               else f"MISMATCH ({v1['steps']}/{v2['steps']} vs {best[1]})")
-    print(f"verify best [{fmt_plan(plan)}]: {verdict}")
+               else f"MISMATCH ({v1['steps']}/{v2['steps']} vs {br['steps']})")
+    print(f"verify best [{fmt_plan(plan)}]: {verdict}  pu={br['pu']} loadout={br['loadout']}")
     return v2 if ok else None
 
 
 def fmt_plan(plan):
     names = {1: "UP", 2: "DOWN", 4: "R", 6: "UP+R", 8: "DOWN+R", 0: "HOLD",
-             3: "LEFT", 5: "UP+L", 7: "DOWN+L", GREEDY_MOVE: "GREEDY"}
+             3: "LEFT", 5: "UP+L", 7: "DOWN+L", GREEDY_MOVE: "GREEDY",
+             ACT_MOVE: "ACT"}
     return " > ".join(f"{names.get(m, m)}x{d}" for m, d in plan)
 
 
@@ -207,6 +258,16 @@ def main():
     p.add_argument("--greedy-move", action="store_true", dest="greedy_move",
                    help="add a GREEDY pseudo-move to the vocab: a segment that follows "
                         "the policy (recorded; deterministic). Beam only.")
+    p.add_argument("--activate", action="store_true",
+                   help="add an ACT pseudo-move to the vocab: HOLD + press A for one "
+                        "step (buy the power-up under the meter cursor). Beam only.")
+    p.add_argument("--rank-powerups", action="store_true", dest="rank_powerups",
+                   help="beam ranks plans by LOADOUT first (4*missile+3*options+"
+                        "2*shield+speed), survival second — for farming openings. "
+                        "Acceptance: pu gain with steps >= baseline - --pu-step-slack.")
+    p.add_argument("--pu-step-slack", type=int, default=50, dest="pu_step_slack",
+                   help="pu-mode: how many survival steps a loadout plan may give up "
+                        "vs the greedy baseline and still be accepted")
     p.add_argument("--rounds", type=int, default=20, help="max beam rounds (segments)")
     p.add_argument("--script-cap", type=int, default=200, dest="script_cap",
                    help="stop growing the script past this many agent-steps")
@@ -230,7 +291,8 @@ def main():
 
     # --- greedy baseline from the same start (the bar to beat) ---
     base = rollout(env, start, model, [], args.warmup, args.continuation)
-    print(f"greedy baseline: {base['steps']} steps / max_x {base['max_x']} / cleared={base['cleared']}\n")
+    print(f"greedy baseline: {base['steps']} steps / max_x {base['max_x']} / "
+          f"cleared={base['cleared']} / pu={base['pu']} {base['loadout']}\n")
 
     # --- beam mode: grow the script past the danger window, then verify+save ---
     if args.beam > 0:
@@ -313,6 +375,7 @@ def _save_outputs(accepted, base, args):
     st = f"states/{args.name}.state"
     save_state(st, accepted["handoff"])
     print(f"\nACCEPTED: {fmt_plan(accepted['plan'])}")
+    print(f"  loadout: pu={accepted['pu']} {accepted['loadout']}")
     print(f"  {accepted['steps']} steps (+{accepted['steps']-base['steps']} vs baseline) "
           f"max_x={accepted['max_x']} cleared={accepted['cleared']}")
     print(f"  demo ({len(accepted['acts'])} steps: warmup+segments) -> {demo}")

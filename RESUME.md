@@ -303,7 +303,41 @@ consolidations peaked at 1830-1831 — **did not beat c9's 1836.** The
 **FLAGSHIP remains `checkpoints/l3-c9-cons2/lifeforce_ppo_400000_steps.zip`
 (1836/1215).** Record remains 1856 (c9-cons2/500k).
 
-## PAUSED FOR DIRECTION — options for the ~1850 plateau:
+## CYCLE 11 (LOADOUT — user insight): items make late channels easier
+
+User observations from live play: (1) HOLD improvement visible and good;
+(2) Missile/Options would widen the carved channels late-level; (3) most
+capsules are at the BEGINNING of the level; (4) drop HOLD from farm-search
+vocab. Measurements confirmed everything: the calm flagship NEVER farms
+(0 items all run; 733 wasted A-presses), while pre-calm checkpoints
+(2M-baseline, consolidate6) bought missile+speed4 by step 600 — **the calm
+training washed the farming habit out.**
+
+Tooling added to segment_search (4 measured design iterations):
+- ACT pseudo-move (HOLD + press A for 1 step; +1 vocab entry, not 2x)
+- --rank-powerups: loadout-first ranking. pu = powerbar + 5*missile +
+  8*options + 7*shield. Speed weighs 0 (v2: beam farmed the cheapest slot);
+  powerbar +1 is the progress breadcrumb (v3: unspent capsules were invisible
+  and the search had to find eat->eat->ACT blind); purchases strictly beat
+  hoarding (missile 5>2, option 8>5, shield 7>6).
+- Loadout measured AT HANDOFF, not episode end (v4: the continuation's
+  A-mashing spent the script's bank on speed, erasing the ranking signal).
+- GREEDY segments now SUPPRESS the policy's own A-press (v6: ride the old
+  policy's chase/kill/collect expertise, keep all spending in ACT segments).
+
+**Farm demo BANKED (`demos/l3_farm_v6.npz`, REPRODUCED 2/2):** ~430-step
+opening from level start on the consolidate6 base — 2 missiles bought via
+deliberate cursor-timed ACTs + 2 capsules banked at handoff, 552 total steps.
+`states/l3_farm_v6.state` = first curriculum state WITH a loadout.
+
+**RUNNING: `l3-c11-cons1`** — BC9 (farm demo into flagship; opening broken to
+59 as usual pre-consolidation) → consolidation at **HALF penalty dose**
+(churn 0.1, move 0.02) because chase-farming is churn-heavy and full dose is
+the suspected habit-killer. Curriculum: {farm_v6 handoff, f1836/e1762/d1753
+bd80s, x120}. Sweep MUST include: loadout@600 on full runs, corridor probes
+(watch for erosion regression at half dose), churn/HOLD.
+
+## (older) PAUSED FOR DIRECTION — options for the ~1850 plateau:
 (a) Deeper script: beam from bd80 with --script-cap 600+ and more rounds —
     maybe the zone needs a long carried line like the 1736 web (v3-style).
 (b) Ensemble: 2-3 demo variants (bd120/seed-1) pooled BC — worked for
