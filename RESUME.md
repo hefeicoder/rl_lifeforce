@@ -330,12 +330,27 @@ opening from level start on the consolidate6 base — 2 missiles bought via
 deliberate cursor-timed ACTs + 2 capsules banked at handoff, 552 total steps.
 `states/l3_farm_v6.state` = first curriculum state WITH a loadout.
 
-**RUNNING: `l3-c11-cons1`** — BC9 (farm demo into flagship; opening broken to
-59 as usual pre-consolidation) → consolidation at **HALF penalty dose**
-(churn 0.1, move 0.02) because chase-farming is churn-heavy and full dose is
-the suspected habit-killer. Curriculum: {farm_v6 handoff, f1836/e1762/d1753
-bd80s, x120}. Sweep MUST include: loadout@600 on full runs, corridor probes
-(watch for erosion regression at half dose), churn/HOLD.
+CYCLE 11 COMPLETE:
+- cons1 (half-dose penalties): farming transferred — policies bank 6 capsules
+  unprompted; 450k hit 1860/1408 (records) but nothing was ever SPENT (2 ACT
+  frames among 430 were too weak a BC signal for purchase timing).
+- **AUTO_BUY added to the env** (config flag, on): Discretizer presses A by
+  rule at MISSILE_SLOT(2, if none) / OPTION_SLOT(5, if <2) and IGNORES the
+  agent's activate head (vestigial, like hardwired B). Measured necessity:
+  agent A-mashing spent the bank at random slots (Laser@4).
+- cons2 (armed training): **every checkpoint fields Missile+Option by step
+  1200**; armed-vs-unarmed gap closed (1743→1846).
+- **NEW FLAGSHIP: `checkpoints/l3-c11-cons2/lifeforce_ppo_350000_steps.zip`
+  — 1846 steps / score 1344 (score record 1444 @final), armed, corridors
+  held.** Half-dose penalties (churn 0.1/move 0.02) are the new standard while
+  farming coexists with calm.
+
+## CYCLE 12 (RUNNING): the ARMED plateau attack
+Frontier captured from the armed flagship: `states/l3_g1846_bd{120,80,40}`
+— first captures ever WITH a loadout in-state. Beam running from bd80
+(standard calm recipe vocab + HOLD): `logs/l3_g1846_beam.log`. Hypothesis
+(user): Missile+Option widen the carved channels → the 1820-1860 plateau
+breaks. Boss check at the next frontier (scroll clock at death).
 
 ## (older) PAUSED FOR DIRECTION — options for the ~1850 plateau:
 (a) Deeper script: beam from bd80 with --script-cap 600+ and more rounds —

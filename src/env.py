@@ -196,6 +196,10 @@ class LifeForceWrapper(gym.Wrapper):
         obs, info = self.env.reset(**kwargs)
         ram = self._ram()
         self._start_lives = int(ram[C.ADDR_LIVES])
+        self._prev_lives = self._start_lives   # death = any DECREASE (a 1UP can raise
+                                               # lives above start; `lives < start` then
+                                               # misses the next death — measured: a free
+                                               # respawn played 384 unarmed steps)
         self._start_stage = int(ram[C.ADDR_STAGE_NUM])
         self._start_vertical = int(ram[C.ADDR_STAGE_VERTICAL])
         self._cleared = False
@@ -239,11 +243,15 @@ class LifeForceWrapper(gym.Wrapper):
         r_clear = 0.0
 
         # 1) stay alive: per-step bonus, death penalty, end episode on death.
-        if lives < self._start_lives:
+        # Death = lives DECREASED since last step (not `< start`: a score 1UP can
+        # raise lives above start, and the next death would slip through — the
+        # episode then continues on an unarmed respawn, inflating step counts).
+        if lives < self._prev_lives:
             r_death = -self._reward_death
             info["life_lost"] = True
             if C.END_ON_LIFE_LOSS:
                 terminated = True
+        self._prev_lives = lives
 
         # 3) pass the level: detect Stage-1 -> Stage-2 transition.
         stage_changed = (
