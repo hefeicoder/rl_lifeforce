@@ -385,10 +385,20 @@ score 1483 @c13-cons1/250k). All probes healthy (i1778 138, h1462 419,
 x120 784), mis+opt fielded. Boss check at 1836: scroll still ticking —
 terrain. Honest trajectory: 1462 → 1778 → 1836.
 
-## CYCLE 14: standard armed recipe from c13-cons2/final
-capture (prefix `l3_j1836`, bd 120/80/40, verify armed) → beam from bd80 →
-BC if ≥30 → consolidate ×2 (armed, half-dose) → sweep → boss check.
-Stage-1 boss expected ~2100-2550 steps; we're ~260-700 short.
+CYCLE 14 COMPLETE: beam +213 verified (~150-step HOLD-dense script, reaches
+~step 2069); BC11 99→181; consolidate ×2.
+**FLAGSHIP: `checkpoints/l3-c14-cons2/lifeforce_ppo_50000_steps.zip` —
+1833 single-life / 1368, corridor j1836=176, all probes healthy.**
+Record: 1856 @c14-cons2/350k (corridor weaker there). Boss check at 1856:
+scroll still ticking — terrain. Honest march: 1462→1778→1836→1856.
+NOTE: the new corridor erodes across cons rounds (181→176→84 by final) —
+the j-corridor is tighter than its predecessors; if cycle 15's sweep shows
+the same, consider full-dose penalties for one round or an ensemble demo.
+
+## CYCLE 15: standard armed recipe from c14-cons2/50k
+capture (prefix `l3_k1833`, bd 120/80/40) → beam bd80 → BC if ≥30 →
+consolidate ×2 → sweep → boss check. Demo line ends ~2069; boss expected
+~2100-2550. Watch scroll clock closely — could be 1-2 cycles out.
 
 ## (older) PAUSED FOR DIRECTION — options for the ~1850 plateau:
 (a) Deeper script: beam from bd80 with --script-cap 600+ and more rounds —
