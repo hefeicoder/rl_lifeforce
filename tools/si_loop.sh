@@ -7,15 +7,15 @@
 # Example: ./tools/si_loop.sh checkpoints/l3-bc6/lifeforce_ppo_bc20.zip l3-si 8 50000
 set -e
 START=$1; PREFIX=$2; CYCLES=${3:-8}; CHUNK=${4:-50000}
-DEMOS=(demos/l3_b1736_fine3.npz demos/l3_b1736_v2_bd120.npz
-       demos/l3_b1736_v3_bd40.npz demos/l3_b1736_v4_seed1.npz)
+DEMOS=(${SI_DEMOS:-demos/l3_k1833_beam.npz})   # override: SI_DEMOS="a.npz b.npz"
 CUR=$START
 for i in $(seq 1 $CYCLES); do
   RUN="${PREFIX}${i}"
   echo "=== cycle $i/$CYCLES: PPO ${CHUNK} steps from ${CUR} -> ${RUN}"
   .venv/bin/python -u -m src.train --resume "$CUR" --run-name "$RUN" \
-    --timesteps "$CHUNK" --ent-coef 0.03 \
-    --curriculum-glob 'states/l3_b1736_curriculum/*.state' --curriculum-mix 0.3 \
+    --timesteps "$CHUNK" --ent-coef 0.015 \
+    --reward-move-cost 0.02 --reward-churn 0.1 \
+    --curriculum-glob "${SI_GLOB:-states/l3_k1833_curriculum/*.state}" --curriculum-mix 0.3 \
     --save-freq "$CHUNK"
   TRAINED="checkpoints/${RUN}/lifeforce_ppo_final.zip"
   BC_OUT="checkpoints/${RUN}/lifeforce_ppo_bcref.zip"

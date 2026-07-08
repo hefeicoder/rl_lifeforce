@@ -395,10 +395,26 @@ NOTE: the new corridor erodes across cons rounds (181→176→84 by final) —
 the j-corridor is tighter than its predecessors; if cycle 15's sweep shows
 the same, consider full-dose penalties for one round or an ensemble demo.
 
-## CYCLE 15: standard armed recipe from c14-cons2/50k
-capture (prefix `l3_k1833`, bd 120/80/40) → beam bd80 → BC if ≥30 →
-consolidate ×2 → sweep → boss check. Demo line ends ~2069; boss expected
-~2100-2550. Watch scroll clock closely — could be 1-2 cycles out.
+CYCLE 15 (the si-loop experiment):
+- Beam banked the PROJECT RECORD: **+423 verified** (448 total from bd80 ≈
+  step 2201 from level start — first line past 2000, inside the boss window).
+  `demos/l3_k1833_beam.npz`.
+- BC12: best transfer ever (25 → 397 of the demo's 448).
+- Plain consolidation ×2 eroded the corridor again (397→100→65; full 1818).
+- **si_loop (first real use): one balanced winner, then oscillation.**
+  Cycle-1 refresh = the keeper. Later cycles pinned the corridor at ~399 but
+  collapsed full-level (~600); extension cycles oscillated (1418 → 501)
+  rather than converging. Measured drift-shrink per refresh (0.47 → 0.0002)
+  shows the corridor DOES stabilize — but 50k PPO chunks then can't rebuild
+  general play before the next refresh re-biases. Lesson: **use si_loop with
+  1-2 cycles as a post-consolidation corridor patch, not as a long loop.**
+- **FLAGSHIP: `checkpoints/l3-si15-1/lifeforce_ppo_bcref.zip`** — full 1827 /
+  score 1377 / churn 34% / mis+opt 1/1 / k-corridor 215 (vs 65 before) /
+  h1462 412 / x120 651. Ties c14's full with the new corridor 3x stronger.
+
+## CYCLE 16: standard armed recipe from si15-1/bcref
+capture (prefix `l3_m1827`) → beam bd80 → BC → consolidate (plain, then
+si_loop 1-2 cycles if the corridor erodes) → sweep → boss check.
 
 ## (older) PAUSED FOR DIRECTION — options for the ~1850 plateau:
 (a) Deeper script: beam from bd80 with --script-cap 600+ and more rounds —
