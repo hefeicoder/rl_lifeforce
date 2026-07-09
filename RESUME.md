@@ -412,9 +412,19 @@ CYCLE 15 (the si-loop experiment):
   score 1377 / churn 34% / mis+opt 1/1 / k-corridor 215 (vs 65 before) /
   h1462 412 / x120 651. Ties c14's full with the new corridor 3x stronger.
 
-## CYCLE 16: standard armed recipe from si15-1/bcref
-capture (prefix `l3_m1827`) → beam bd80 → BC → consolidate (plain, then
-si_loop 1-2 cycles if the corridor erodes) → sweep → boss check.
+CYCLE 16 COMPLETE: beam +328 verified (~step 2155 line); BC13 80→279;
+consolidate ×2. **FLAGSHIP: `checkpoints/l3-c16-cons1/lifeforce_ppo_300000_steps.zip`
+— 1859 single-life / score 1484 (both records among balanced ckpts), x120
+900, all healthy.** Raw record: **1908** @c16-cons2/300k (but round 2
+collapsed the pinch probe to ~25 across almost every ckpt — regression, not
+used). Boss check at 1908: scroll still ticking. Honest march:
+1462→1778→1836→1859 (record run 1908).
+
+## CYCLE 17: standard armed recipe from c16-cons1/300k
+capture (prefix `l3_n1859`) → beam bd80 → BC → consolidate ×2 (watch the
+pinch probe — it collapsed in c16-cons2; if it goes again, add x120 weight
+or run an si-patch with the pinch demo) → sweep → boss check.
+Boss expected 2100-2550; banked lines reach 2155-2201.
 
 ## (older) PAUSED FOR DIRECTION — options for the ~1850 plateau:
 (a) Deeper script: beam from bd80 with --script-cap 600+ and more rounds —
