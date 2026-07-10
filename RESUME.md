@@ -420,11 +420,21 @@ collapsed the pinch probe to ~25 across almost every ckpt — regression, not
 used). Boss check at 1908: scroll still ticking. Honest march:
 1462→1778→1836→1859 (record run 1908).
 
-## CYCLE 17: standard armed recipe from c16-cons1/300k
-capture (prefix `l3_n1859`) → beam bd80 → BC → consolidate ×2 (watch the
-pinch probe — it collapsed in c16-cons2; if it goes again, add x120 weight
-or run an si-patch with the pinch demo) → sweep → boss check.
-Boss expected 2100-2550; banked lines reach 2155-2201.
+CYCLE 17 COMPLETE: beam +297 (~step 2155 line); BC14 79→240; consolidate
+×2. **FLAGSHIP: `checkpoints/l3-c17-cons2/lifeforce_ppo_500000_steps.zip` —
+1866 single-life / score 1493 (both records)**; boss check at 1866: still
+terrain. si-patch (2 cycles) tried on it: pinned the n-corridor (375) but
+seesawed h-corridor/full — no balanced winner; flagship unchanged.
+**KEY DIAGNOSIS: probe-vs-trajectory divergence.** Corridor probes replay
+near demo-perfect (~375) while full runs die ~1860 — the true trajectory
+reaches the corridor region in a different state than the bd80 capture, so
+the skill doesn't engage. Reload-based drills inherently chase a moving
+trajectory; the loop's per-cycle re-capture is the working mitigation.
+Honest march: 1462→1778→1836→1859→1866.
+
+## CYCLE 18: standard armed recipe from c17-cons2/500k
+capture (prefix `l3_p1866`) → beam bd80 → BC → consolidate ×2 → sweep →
+boss check. Skip si-patches unless a sweep leaves NO balanced checkpoint.
 
 ## (older) PAUSED FOR DIRECTION — options for the ~1850 plateau:
 (a) Deeper script: beam from bd80 with --script-cap 600+ and more rounds —
