@@ -432,9 +432,16 @@ the skill doesn't engage. Reload-based drills inherently chase a moving
 trajectory; the loop's per-cycle re-capture is the working mitigation.
 Honest march: 1462→1778→1836→1859→1866.
 
-## CYCLE 18: standard armed recipe from c17-cons2/500k
-capture (prefix `l3_p1866`) → beam bd80 → BC → consolidate ×2 → sweep →
-boss check. Skip si-patches unless a sweep leaves NO balanced checkpoint.
+CYCLE 18: FLAT. Beam +304 (~step 2177 line, verified); BC15 87→218;
+consolidate ×2 never beat 1866 (best 1842 @cons1/250k WITH corridor 367;
+round 2 collapsed the corridor to 14). Flagship unchanged.
+Two flat cycles → variable changed for cycle 19: base on the
+CORRIDOR-HOLDING checkpoint (c18-cons1/250k, 1842/corridor 367) instead of
+the highest-full one; fresh captures (`l3_q1842_*`) from ITS trajectory.
+
+## CYCLE 19 (RUNNING): from c18-cons1/250k
+beam bd80 (`l3_q1842_beam`) → BC → consolidate ×2 → sweep vs 1866 →
+boss check.
 
 ## (older) PAUSED FOR DIRECTION — options for the ~1850 plateau:
 (a) Deeper script: beam from bd80 with --script-cap 600+ and more rounds —
