@@ -439,9 +439,32 @@ Two flat cycles → variable changed for cycle 19: base on the
 CORRIDOR-HOLDING checkpoint (c18-cons1/250k, 1842/corridor 367) instead of
 the highest-full one; fresh captures (`l3_q1842_*`) from ITS trajectory.
 
-## CYCLE 19 (RUNNING): from c18-cons1/250k
-beam bd80 (`l3_q1842_beam`) → BC → consolidate ×2 → sweep vs 1866 →
-boss check.
+CYCLE 19: beam +352 verified; BC16 56→272; consolidate ×2 FAILED the 1950
+bar (best 1879 w/ broken pinch; balanced ~1830-1847). Per agreement →
+**PIVOT: GOLDEN-RUN METHOD — immediate success.**
+
+## GOLDEN-RUN METHOD (the new standard for converting demos)
+Build ONE continuous trajectory: base policy plays from level start to the
+capture step, then the verified beam script's ACTIONS execute, then greedy
+to death — recording (obs, action) every step. Zero capture-state mismatch
+(warm frame stack, on-trajectory obs). BC the whole thing back into the
+policy that generated it (10 epochs).
+- Construction note: the script died 22 steps earlier in the continuous run
+  than from the reload (2000 vs 2170 equiv) — directly measuring the
+  reload mismatch (likely small alignment offset; try ±1-2 step offsets
+  next time to recover the tail).
+- Result: **PERFECT CLOSED-LOOP CLONE — first BC pass, no consolidation:
+  `checkpoints/l3-golden/lifeforce_ppo_bc10.zip` = 2000 single-life steps /
+  score 1396 / loadout 1/1 / h1462 probe 399 / x120 277 / churn 25%.**
+  +134 over the old record in one step. FIRST >2000 CHECKPOINT.
+- Boss check at 2000: scroll still ticking (242), stage 0 — terrain.
+
+## NEXT: iterate the golden loop from l3-golden/bc10 (2000)
+1. Capture `--before-death 120 80 40` from the golden clone (prefix
+   `l3_r2000`) → beam bd80 → verify → BUILD GOLDEN RUN (policy to capture
+   step + script + greedy, ±2-step offset scan) → BC 10ep → probe → repeat.
+2. Light consolidation only if probes decay (x120 at 277 is softer — watch).
+3. Boss expected any cycle now (scroll clock at each new death).
 
 ## (older) PAUSED FOR DIRECTION — options for the ~1850 plateau:
 (a) Deeper script: beam from bd80 with --script-cap 600+ and more rounds —
