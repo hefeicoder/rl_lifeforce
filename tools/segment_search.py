@@ -67,8 +67,9 @@ def rollout(env, start, model, plan, warmup, cont_cap, record=False):
     """Fresh load of `start` -> `warmup` greedy steps (recomputed, deterministic)
     -> scripted segments `plan` = [(move_idx, duration), ...] -> greedy
     continuation. Returns score dict; obs/actions of warmup+segments if record."""
-    env.unwrapped.initial_state = start
-    obs, _ = env.reset()
+    if start is not None:                         # None = canonical reset (true level
+        env.unwrapped.initial_state = start       # start; avoids reload frame-phase
+    obs, _ = env.reset()                          # divergence — see RESUME.md)
     d_obs, d_acts = [], []
     steps, max_x, cleared, done = 0, 0, False, False
 
@@ -278,7 +279,10 @@ def main():
 
     env = make_env(preprocess=True, curriculum=False, seed=args.seed)
     model = PPO.load(args.model, device="cpu")
-    start = load_state(args.state)
+    # RESET = search the canonical-reset world (true level start). Any saved-state
+    # reload lives in a frame-phase-shifted world whose scripts do NOT transfer to
+    # real runs (measured: reload scripts die on the continuous trajectory).
+    start = None if args.state == "RESET" else load_state(args.state)
 
     # --- determinism probe: a fixed plan must replay identically from fresh loads ---
     probe = [(4, 8), (2, 8), (6, 8)]

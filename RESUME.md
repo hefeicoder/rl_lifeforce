@@ -459,12 +459,25 @@ policy that generated it (10 epochs).
   +134 over the old record in one step. FIRST >2000 CHECKPOINT.
 - Boss check at 2000: scroll still ticking (242), stage 0 — terrain.
 
-## NEXT: iterate the golden loop from l3-golden/bc10 (2000)
-1. Capture `--before-death 120 80 40` from the golden clone (prefix
-   `l3_r2000`) → beam bd80 → verify → BUILD GOLDEN RUN (policy to capture
-   step + script + greedy, ±2-step offset scan) → BC 10ep → probe → repeat.
-2. Light consolidation only if probes decay (x120 at 277 is softer — watch).
-3. Boss expected any cycle now (scroll clock at each new death).
+## THE RELOAD-WORLD DISCOVERY (cycle 20 — changes everything)
+Cycle 20's beam (+102 from the r2000 reload) did NOT transfer: the same
+script actions from the perfectly-aligned continuous step (scroll-clock
+verified) die at the old step 2000. Even a reload of a level-start snapshot
+gives a different trajectory (dies 805 vs 2000). **Conclusion: em.set_state
+reloads land in a frame-phase-shifted world; scripts found there exploit
+enemy timings the real run never sees. ALL reload-based search gains past
+~step 1800 were unconvertible for this reason.**
+Fix shipped in segment_search: `--state RESET` = canonical env.reset()
+world + `--warmup N` (greedy steps from level start, recomputed per rollout)
+= search happens ON the true trajectory; gains convert 1:1 via golden-build.
+GOTCHA: --script-cap counts warmup — set it to warmup+desired script length.
+
+## RUNNING: continuous-world beam (`l3_cont2000`, log l3_cont2000c.log)
+`--state RESET --warmup 1918 --beam 8 --rounds 30 --durations 2 4 8
+--script-cap 2220 --continuation 200` on l3-golden/bc10. Baseline confirmed
+2000 steps + full loadout. ~3 min/round.
+On acceptance: golden-build (policy to 1918 + script + greedy, ONE
+continuous recording) → BC 10ep → probe → boss check → iterate.
 
 ## (older) PAUSED FOR DIRECTION — options for the ~1850 plateau:
 (a) Deeper script: beam from bd80 with --script-cap 600+ and more rounds —
