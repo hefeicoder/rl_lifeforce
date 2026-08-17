@@ -515,21 +515,23 @@ clear demo is `demos/l3_boss3530_single.npz` (3642 examples).
 - Missile+Option fielded; churn 19.0%; HOLD 62.9%
 - clear signal confirmed: `stage_vertical` **0→1** while `stage_num` stays 0
 - proof video: `videos/l3_level1_clear.mp4`
+- public release: [Level 1 Clear v1](https://github.com/hefeicoder/rl_lifeforce/releases/tag/level1-clear-v1)
 
 Tooling added during the clear: 5000-step safety ceiling; search abort on a
 truncated baseline; full-continuation golden recording; deterministic cached
 warmup replay; fast prefix replay that rebuilds the final four-frame stack; and
 parallel beam candidate scoring (`--workers`).
 
-**Next:** preserve this checkpoint as the Level-1 release artifact. Before any
-robustness PPO, evaluate stochastic clear rate separately; do not overwrite the
-deterministic clear with a later checkpoint. Level 2 is now a state/config task.
+The checkpoint and proof video are preserved in the `level1-clear-v1` GitHub
+release. Before any robustness PPO, evaluate stochastic clear rate separately;
+do not overwrite the deterministic release checkpoint with a later checkpoint.
+Level 2 is now a state/config task.
 
 ## Next steps
 
-1. Commit and merge the Level-1 code and documentation changes.
-2. Tag that commit (suggested: `level1-clear-v1`) and publish the checkpoint as
-   a GitHub Release asset with its SHA-256; optionally attach the proof video.
-3. Add the final release URL to `README.md` once the asset exists.
-4. Start Level 2 from its real reset/state and confirm its clear RAM signal
-   before changing rewards or training.
+1. Establish the real Level-2 reset/integration state and capture its initial RAM
+   signature.
+2. Run the released policy as a deterministic Level-2 baseline before changing
+   rewards or training.
+3. Confirm Level 2's clear signal, then repeat the canonical search + golden-run
+   loop without overwriting the Level-1 release artifact.
