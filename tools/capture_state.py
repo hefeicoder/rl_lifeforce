@@ -1,10 +1,11 @@
-"""Capture a save-state at a hard section, for the curriculum.
+"""Capture a save-state at a hard section for optional curriculum/diagnostics.
 
 Runs a trained agent from the level start and saves the emulator state from
 shortly BEFORE it dies — i.e. the spot it's stuck at. The agent's own failure
 point defines the wall, so you don't have to know where it is. Saves to
-CURRICULUM_DIR/<name>.state, after which `python -m src.train --resume ...`
-automatically mixes it into training (see CurriculumStart in env.py).
+CURRICULUM_DIR/<name>.state. Precision gains from the loaded state must still be
+verified from the real reset; use canonical RESET+warmup search when transfer is
+required.
 
 Usage:
   python -m tools.capture_state --model checkpoints/lifeforce_ppo_<N>_steps.zip --name l1_gauntlet
@@ -24,6 +25,8 @@ from src.env import make_env
 def main():
     p = argparse.ArgumentParser()
     p.add_argument("--model", required=True, help="checkpoint to drive the capture")
+    p.add_argument("--initial-state", default=None, dest="initial_state",
+                   help="gzipped emulator state used as the real reset target")
     p.add_argument("--name", required=True, help="output name -> CURRICULUM_DIR/<name>.state")
     p.add_argument("--episodes", type=int, default=8, help="episodes to try; keep the furthest")
     p.add_argument("--before-death", type=int, default=30, dest="before_death",
@@ -32,7 +35,8 @@ def main():
                    help="sample actions instead of deterministic (default deterministic)")
     args = p.parse_args()
 
-    env = make_env(render_mode=None, curriculum=False)  # always start from the real level start
+    env = make_env(render_mode=None, curriculum=False,
+                   initial_state=args.initial_state)  # always start from the real reset
     em = env.unwrapped.em
     model = PPO.load(args.model)
 
@@ -60,8 +64,9 @@ def main():
           f"({best_steps} steps) -> {out}")
     print("Replay this state to verify it's a fair approach (not a cornered frame):")
     print(f"  python -m src.play --model {args.model} --from-state {out}")
-    print("Then resume training; it will mix this state in automatically:")
-    print(f"  python -m src.train --resume {args.model}")
+    print("Optional curriculum drill (explicit state and mix):")
+    print(f"  python -m src.train --resume {args.model} "
+          f"--curriculum-glob {out} --curriculum-mix 0.3 --run-name <name>")
     try:
         env.close()
     except Exception:

@@ -68,6 +68,11 @@ class LifeForceStatsCallback(BaseCallback):
         # steps collapsing = ratchet coeff too high.
         self._best_max_x = 0
         self._recent_max_x = deque(maxlen=window)
+        # Vertical-stage screen-position diagnostics. These deliberately have no
+        # "best" semantics: top/bottom position is tactical, not level progress.
+        self._recent_min_y = deque(maxlen=window)
+        self._recent_max_y = deque(maxlen=window)
+        self._recent_mean_y = deque(maxlen=window)
         # SAME metrics but only for curriculum-start episodes (e.g. l3_wall). With
         # curriculum_mix<1, the full-level starts survive ~880 steps and pollute the
         # aggregate best_steps; this bucket is the clean drill-section signal.
@@ -93,6 +98,10 @@ class LifeForceStatsCallback(BaseCallback):
                 mx = int(info.get("max_x", 0))                # true furthest screen-x this episode
                 self._recent_max_x.append(mx)
                 self._best_max_x = max(self._best_max_x, mx)
+                if info.get("min_y") is not None:
+                    self._recent_min_y.append(float(info["min_y"]))
+                    self._recent_max_y.append(float(info["max_y"]))
+                    self._recent_mean_y.append(float(info["mean_y"]))
                 if info.get("curriculum_start"):              # drill-section episodes only
                     self._curr_steps.append(st)
                     self._curr_max_x.append(mx)
@@ -112,6 +121,13 @@ class LifeForceStatsCallback(BaseCallback):
             self.logger.record("lifeforce/best_max_x", self._best_max_x)               # all-time furthest x
             self.logger.record("lifeforce/recent_max_x",
                                sum(self._recent_max_x) / len(self._recent_max_x))       # recent mean max_x
+        if self._recent_mean_y:
+            self.logger.record("lifeforce/recent_min_y",
+                               sum(self._recent_min_y) / len(self._recent_min_y))
+            self.logger.record("lifeforce/recent_max_y",
+                               sum(self._recent_max_y) / len(self._recent_max_y))
+            self.logger.record("lifeforce/recent_mean_y",
+                               sum(self._recent_mean_y) / len(self._recent_mean_y))
         if self._curr_steps:   # clean drill-section (curriculum-start) signal
             self.logger.record("curr/recent_best_steps", max(self._curr_steps))
             self.logger.record("curr/best_steps", self._curr_best_steps)
@@ -126,7 +142,8 @@ class LifeForceStatsCallback(BaseCallback):
         return True
 
 
-def build_vec_env(n_envs, load_norm=None, curriculum_glob=None, curriculum_mix=None,
+def build_vec_env(n_envs, load_norm=None, initial_state=None,
+                  curriculum_glob=None, curriculum_mix=None,
                   frame_skip=None, reward_score_scale=None, reward_alive=None,
                   reward_death=None, reward_xpos=None, x_front_frac=None,
                   reward_xmax=None, reward_move_cost=None, reward_churn=None):
@@ -134,7 +151,8 @@ def build_vec_env(n_envs, load_norm=None, curriculum_glob=None, curriculum_mix=N
     # (normalizes only what the algorithm trains on; raw reward_components in info
     # are untouched, so TensorBoard reward/* stays interpretable).
     base = VecMonitor(SubprocVecEnv([
-        make_thunk(seed=i, curriculum_glob=curriculum_glob,
+        make_thunk(seed=i, initial_state=initial_state,
+                   curriculum_glob=curriculum_glob,
                    curriculum_mix=curriculum_mix, frame_skip=frame_skip,
                    reward_score_scale=reward_score_scale,
                    reward_alive=reward_alive,
@@ -184,6 +202,9 @@ def main():
     p.add_argument("--n-envs", type=int, default=C.N_ENVS)
     p.add_argument("--smoke", action="store_true", help="tiny sanity run")
     p.add_argument("--resume", default=None, help="path to a checkpoint .zip to continue from")
+    p.add_argument("--initial-state", default=None, dest="initial_state",
+                   help="gzipped emulator state used as the real reset target "
+                        "(e.g. states/l2_start.state); distinct from curriculum")
     p.add_argument("--device", default="auto",
                    help="torch device: 'auto' (=mps on Apple Silicon, ~2.5x faster) / 'cpu' / 'mps'")
     p.add_argument("--save-freq", type=int, default=C.CHECKPOINT_EVERY,
@@ -243,6 +264,7 @@ def main():
     # On resume, load that checkpoint's normalization stats from beside it.
     load_norm = vecnorm_for(args.resume) if args.resume else None
     venv = build_vec_env(args.n_envs, load_norm=load_norm,
+                         initial_state=args.initial_state,
                          curriculum_glob=args.curriculum_glob,
                          curriculum_mix=args.curriculum_mix,
                          frame_skip=args.frame_skip,
@@ -259,6 +281,8 @@ def main():
         pat = args.curriculum_glob or os.path.join(C.CURRICULUM_DIR, "*.state")
         mix = C.CURRICULUM_MIX if args.curriculum_mix is None else args.curriculum_mix
         print(f"Curriculum: mix={mix}  states={_glob.glob(pat)}")
+    if args.initial_state:
+        print(f"Real reset state: {args.initial_state}")
     if args.frame_skip is not None:
         print(f"Frame skip override: {args.frame_skip} (config default {C.FRAME_SKIP})")
     reward_overrides = {

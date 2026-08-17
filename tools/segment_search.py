@@ -1,29 +1,24 @@
-"""Structured segment search for a reproducible commit-through demo.
+"""Structured canonical search for a reproducible commit-through demo.
 
-Purpose (see docs/go-explore-l3-progress.md, Session 6): the L3 pinch needs a
-narrow, precisely-timed sustained maneuver that per-step random search cannot
-assemble (13k random bridges plateaued) and the current policy actively avoids
-(it retreats at the window). Instead of random actions, exhaustively sweep a SMALL
-STRUCTURED space of segment plans -- N consecutive holds, each (move, duration) --
-from a fresh save-state load, and score each plan by GREEDY-POLICY CONTINUATION
-survival after the scripted segments end (clean-handoff criterion, same as
-explore_frontier).
+Search a small space of movement/duration segments, then score each plan by its
+greedy-policy continuation. The transferable standard is ``--state RESET`` plus
+an optional stage ``--initial-state`` and deterministic ``--warmup``. Warmup
+actions are computed once and replayed from that real reset for every candidate,
+so late searches do not depend on phase-shifted intermediate save-state reloads.
+Direct ``--state path.state`` search remains available for diagnostics only.
 
-Reproducibility by construction (the failure that invalidated the earlier
-Go-Explore run): every candidate starts from a FRESH load of the saved state --
-there is no greedy advance-to-near-failure phase whose accumulated emulator state
-can't be reproduced. The optional --warmup N greedy actions are computed once and
-replayed from a fresh reset inside every rollout, never loaded from an intermediate
-state. Winners are re-verified with independent resets before anything is saved.
+Winners are independently reproduced twice before outputs are saved. With
+``--record-continuation``, the demo contains the complete reset-to-continuation
+trajectory for golden-run behavior cloning.
 
 Usage:
   python -m tools.segment_search \
-    --model checkpoints/l3-pinch-mixed-long/lifeforce_ppo_700000_steps.zip \
-    --state states/l3_pinch_curriculum/l3_pinch_x120.state \
-    --name l3_thread_x120
+    --model checkpoints/l2-golden-362/lifeforce_ppo_bc5_lr1e4.zip \
+    --initial-state states/l2_start.state --state RESET --warmup 300 \
+    --name l2_next --beam 8 --record-continuation
 
 Outputs (only if a verified candidate beats the greedy baseline by --min-gain):
-  demos/<name>.npz      -- BC demo: obs+actions of the scripted segments (+warmup)
+  demos/<name>.npz      -- BC demo: warmup+script, plus continuation when requested
   states/<name>.state   -- emulator state at segment end (clean-handoff frontier)
 """
 import argparse
@@ -80,19 +75,24 @@ def rollout(env, start, model, plan, warmup, cont_cap, record=False,
     obs, _ = env.reset()                          # divergence — see RESUME.md)
     d_obs, d_acts = [], []
     steps, max_x, cleared, done = 0, 0, False, False
+    y0 = int(env.unwrapped.get_ram()[C.ADDR_Y_POS])
+    min_y, max_y = y0, y0
     terminated, truncated, info = False, False, {}
 
     rec = {"on": record}                          # demo = warmup+segments ONLY, not
                                                   # the greedy continuation (it would
                                                   # dilute the BC signal ~5:1)
     def _step(act):
-        nonlocal obs, steps, max_x, cleared, done, terminated, truncated, info
+        nonlocal obs, steps, max_x, min_y, max_y
+        nonlocal cleared, done, terminated, truncated, info
         if rec["on"]:
             d_obs.append(np.asarray(obs, dtype=np.uint8))
             d_acts.append(np.asarray(act))
         obs, _, terminated, truncated, info = env.step(act)
         steps += 1
         max_x = max(max_x, int(info.get("x_pos", 0)))
+        y_now = int(info.get("y_pos", y0))
+        min_y, max_y = min(min_y, y_now), max(max_y, y_now)
         cleared = cleared or bool(info.get("stage_cleared"))
         done = terminated or truncated
 
@@ -106,10 +106,13 @@ def rollout(env, start, model, plan, warmup, cont_cap, record=False,
         gameplay_env = gameplay_env.env
 
     def _fast_step(act):
-        nonlocal steps, max_x, cleared, done, terminated, truncated, info
+        nonlocal steps, max_x, min_y, max_y
+        nonlocal cleared, done, terminated, truncated, info
         _, _, terminated, truncated, info = gameplay_env.step(act)
         steps += 1
         max_x = max(max_x, int(info.get("x_pos", 0)))
+        y_now = int(info.get("y_pos", y0))
+        min_y, max_y = min(min_y, y_now), max(max_y, y_now)
         cleared = cleared or bool(info.get("stage_cleared"))
         done = terminated or truncated
 
@@ -185,7 +188,8 @@ def rollout(env, start, model, plan, warmup, cont_cap, record=False,
     pu = (loadout["powerbar"] + 5 * loadout["missile"] + 8 * loadout["options"]
           + 7 * loadout["shield"])
 
-    return {"steps": steps, "max_x": max_x, "cleared": cleared,
+    return {"steps": steps, "max_x": max_x, "min_y": min_y, "max_y": max_y,
+            "cleared": cleared,
             "terminated": terminated, "truncated": truncated,
             "life_lost": bool(info.get("life_lost")),
             "survived_segments": survived_segments, "handoff": seg_end_state,
@@ -194,11 +198,12 @@ def rollout(env, start, model, plan, warmup, cont_cap, record=False,
 
 
 def _init_rollout_worker(model_path, start, seed, warmup, continuation,
-                         warmup_actions):
+                         warmup_actions, initial_state):
     """Initialize one persistent emulator/model pair for parallel beam scoring."""
     global _WORKER_ENV, _WORKER_MODEL, _WORKER_START, _WORKER_WARMUP
     global _WORKER_CONTINUATION, _WORKER_WARMUP_ACTIONS
-    _WORKER_ENV = make_env(preprocess=True, curriculum=False, seed=seed)
+    _WORKER_ENV = make_env(preprocess=True, curriculum=False, seed=seed,
+                           initial_state=initial_state)
     _WORKER_MODEL = PPO.load(model_path, device="cpu")
     _WORKER_START = start
     _WORKER_WARMUP = warmup
@@ -231,11 +236,12 @@ def beam_search(env, start, model, args, base, warmup_actions=None):
     pu_mode = args.rank_powerups
 
     def key(r, cont):
-        # pu-mode: loadout first (that's the objective), then survival, then max_x.
-        # normal: total survival first (steps = level progress in an auto-scroller).
+        # Position is intentionally not a ranking signal: x/y are tactical screen
+        # coordinates, not world progress, and Level 2 scrolls vertically.
+        # pu-mode: loadout first, then survival. Normal: total survival first.
         if pu_mode:
-            return (r["cleared"], r["pu"], r["steps"], r["max_x"])
-        return (r["cleared"], r["steps"], r["max_x"])
+            return (r["cleared"], r["pu"], r["steps"])
+        return (r["cleared"], r["steps"])
 
     pool = None
     if args.workers > 1:
@@ -244,7 +250,7 @@ def beam_search(env, start, model, args, base, warmup_actions=None):
             args.workers,
             initializer=_init_rollout_worker,
             initargs=(args.model, start, args.seed, args.warmup,
-                      args.continuation, warmup_actions),
+                      args.continuation, warmup_actions, args.initial_state),
         )
         print(f"parallel candidate scoring: {args.workers} workers")
 
@@ -320,7 +326,10 @@ def beam_search(env, start, model, args, base, warmup_actions=None):
     v2 = rollout(env, start, model, plan, args.warmup, args.continuation, record=True,
                  record_continuation=args.record_continuation,
                  warmup_actions=warmup_actions)
-    ok = {(v["steps"], v["max_x"], v["pu"]) for v in (v1, v2)} == {(br["steps"], br["max_x"], br["pu"])}
+    verify_keys = ("steps", "max_x", "min_y", "max_y", "pu")
+    ok = {tuple(v[k] for k in verify_keys) for v in (v1, v2)} == {
+        tuple(br[k] for k in verify_keys)
+    }
     verdict = ("REPRODUCED 2/2" if ok
                else f"MISMATCH ({v1['steps']}/{v2['steps']} vs {br['steps']})")
     print(f"verify best [{fmt_plan(plan)}]: {verdict}  pu={br['pu']} loadout={br['loadout']}")
@@ -337,6 +346,9 @@ def fmt_plan(plan):
 def main():
     p = argparse.ArgumentParser()
     p.add_argument("--model", required=True)
+    p.add_argument("--initial-state", default=None, dest="initial_state",
+                   help="gzipped emulator state used as RESET's canonical target "
+                        "(e.g. states/l2_start.state)")
     p.add_argument("--state", required=True,
                    help="RESET for canonical env.reset()+--warmup, or a gzipped "
                         ".state for diagnostic reload-world search")
@@ -368,8 +380,8 @@ def main():
                    help="add an ACT pseudo-move to the vocab: HOLD + press A for one "
                         "step (buy the power-up under the meter cursor). Beam only.")
     p.add_argument("--rank-powerups", action="store_true", dest="rank_powerups",
-                   help="beam ranks plans by LOADOUT first (4*missile+3*options+"
-                        "2*shield+speed), survival second — for farming openings. "
+                   help="beam ranks plans by LOADOUT first (powerbar+5*missile+"
+                        "8*options+7*shield), survival second — for farming openings. "
                         "Acceptance: pu gain with steps >= baseline - --pu-step-slack.")
     p.add_argument("--pu-step-slack", type=int, default=50, dest="pu_step_slack",
                    help="pu-mode: how many survival steps a loadout plan may give up "
@@ -386,8 +398,11 @@ def main():
     args = p.parse_args()
     if args.workers < 1:
         p.error("--workers must be at least 1")
+    if args.initial_state and args.state != "RESET":
+        p.error("--initial-state is only meaningful with --state RESET")
 
-    env = make_env(preprocess=True, curriculum=False, seed=args.seed)
+    env = make_env(preprocess=True, curriculum=False, seed=args.seed,
+                   initial_state=args.initial_state)
     model = PPO.load(args.model, device="cpu")
     # RESET = search the canonical-reset world (true level start). Any saved-state
     # reload lives in a frame-phase-shifted world whose scripts do NOT transfer to
@@ -407,7 +422,7 @@ def main():
         warmup_actions = np.asarray(warm["acts"])
         replay = rollout(env, start, model, [], args.warmup, 0,
                          warmup_actions=warmup_actions)
-        replay_keys = ("steps", "max_x", "pu", "cleared")
+        replay_keys = ("steps", "max_x", "min_y", "max_y", "pu", "cleared")
         if any(replay[k] != warm[k] for k in replay_keys):
             raise SystemExit("!! cached warmup replay diverged from the policy run-up")
         print(f"cached {len(warmup_actions)} deterministic warmup actions")
@@ -418,15 +433,20 @@ def main():
                  warmup_actions=warmup_actions)
     r2 = rollout(env, start, model, probe, args.warmup, args.continuation,
                  warmup_actions=warmup_actions)
-    if (r1["steps"], r1["max_x"]) != (r2["steps"], r2["max_x"]):
-        raise SystemExit(f"!! non-deterministic replay ({r1['steps']}/{r1['max_x']} vs "
-                         f"{r2['steps']}/{r2['max_x']}) -- aborting, results would be meaningless")
-    print(f"determinism OK (probe plan: {r1['steps']} steps / max_x {r1['max_x']}, reproducible)")
+    probe_keys = ("steps", "max_x", "min_y", "max_y")
+    if tuple(r1[k] for k in probe_keys) != tuple(r2[k] for k in probe_keys):
+        raise SystemExit(
+            f"!! non-deterministic replay ({tuple(r1[k] for k in probe_keys)} vs "
+            f"{tuple(r2[k] for k in probe_keys)}) -- aborting, results would be meaningless"
+        )
+    print(f"determinism OK (probe plan: {r1['steps']} steps / "
+          f"xmax={r1['max_x']} y={r1['min_y']}..{r1['max_y']}, reproducible)")
 
     # --- greedy baseline from the same start (the bar to beat) ---
     base = rollout(env, start, model, [], args.warmup, args.continuation,
                    warmup_actions=warmup_actions)
-    print(f"greedy baseline: {base['steps']} steps / max_x {base['max_x']} / "
+    print(f"greedy baseline: {base['steps']} steps / xmax={base['max_x']} / "
+          f"y={base['min_y']}..{base['max_y']} / "
           f"cleared={base['cleared']} / pu={base['pu']} {base['loadout']}\n")
     if base["truncated"] and not base["cleared"]:
         raise SystemExit(
@@ -460,12 +480,12 @@ def main():
           f"({args.segments} segments x {len(args.moves)} moves x {len(args.durations)} durations)")
 
     results, t0 = [], time.perf_counter()
-    best_key = (False, base["steps"], base["max_x"])
+    best_key = (False, base["steps"])
     for i, plan in enumerate(space):
         r = rollout(env, start, model, list(plan), args.warmup, args.continuation,
                     warmup_actions=warmup_actions)
         results.append(r)
-        key = (r["cleared"], r["steps"], r["max_x"])
+        key = (r["cleared"], r["steps"])
         if key > best_key:
             best_key = key
             print(f"  [{i+1}/{len(space)}] NEW BEST {r['steps']} steps (+{r['steps']-base['steps']}) "
@@ -476,7 +496,7 @@ def main():
             print(f"  ... {i+1}/{len(space)}  best={best_key[1]} steps  "
                   f"({el:.0f}s, {el/(i+1)*1000:.0f}ms/plan)")
 
-    results.sort(key=lambda r: (r["cleared"], r["steps"], r["max_x"]), reverse=True)
+    results.sort(key=lambda r: (r["cleared"], r["steps"]), reverse=True)
     print(f"\ntop {min(args.top, 20)} of {len(results)} (baseline {base['steps']} steps / max_x {base['max_x']}):")
     for r in results[:min(args.top, 20)]:
         print(f"  {r['steps']:4d} steps  max_x={r['max_x']:3d}  cleared={r['cleared']}  "
@@ -492,7 +512,10 @@ def main():
         v2 = rollout(env, start, model, list(r["plan"]), args.warmup, args.continuation,
                      record=True, record_continuation=args.record_continuation,
                      warmup_actions=warmup_actions)
-        ok = ({(v["steps"], v["max_x"]) for v in (v1, v2)} == {(r["steps"], r["max_x"])})
+        verify_keys = ("steps", "max_x", "min_y", "max_y")
+        ok = {tuple(v[k] for k in verify_keys) for v in (v1, v2)} == {
+            tuple(r[k] for k in verify_keys)
+        }
         verdict = ("REPRODUCED 2/2" if ok
                    else f"MISMATCH ({v1['steps']}/{v2['steps']} vs {r['steps']})")
         print(f"verify {fmt_plan(r['plan'])}: {verdict}")
@@ -531,7 +554,7 @@ def _save_outputs(accepted, base, args):
     else:
         print("  handoff state: none (the scripted segment cleared the level)")
     print(f"next: python -m tools.self_imitation --model {args.model} --demos {demo} "
-          f"--out checkpoints/l3-bc/lifeforce_ppo_bc.zip")
+          f"--out checkpoints/<next>/lifeforce_ppo_bc.zip --epochs 5 --lr 1e-4")
 
 
 if __name__ == "__main__":

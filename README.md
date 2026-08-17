@@ -6,9 +6,9 @@ Reinforcement learning on **Life Force** (the NES release of Konami's
 
 ![Life Force (NES), Stage 1 — the Vic Viper ship in the cellular cavern](images/lifeforce.png)
 
-**Result:** the agent clears **Level 1** deterministically in 3642 agent steps,
-with the project structured so later levels are a config change rather than a
-rewrite.
+**Result:** the agent clears **Level 1** deterministically in 3642 agent steps.
+A separate Level-2 specialist now reaches 362 steps from the settled vertical-stage
+reset, up from the inherited policy's 233-step baseline.
 
 Why this project exists: most RL game tutorials use turnkey packages (like
 `gym-super-mario-bros`) that bundle the ROM, the action set, and the reward
@@ -41,6 +41,12 @@ own ROM, and extending the game integration (finding RAM addresses) yourself.
   [release checkpoint](https://github.com/hefeicoder/rl_lifeforce/releases/download/level1-clear-v1/lifeforce_ppo_bc5_lr1e4.zip)
   clears deterministically in **3642 steps / score 2932**, verified 3/3 from a
   cold level reset. [Proof video](https://github.com/hefeicoder/rl_lifeforce/releases/download/level1-clear-v1/l3_level1_clear.mp4).
+- 🚧 **Level 2 specialist bootstrapped** — captured a settled, player-active
+  Level-2 reset from the real Level-1 transition, measured the inherited policy
+  at 233 steps, and produced a first specialist that reaches **362 steps**
+  identically in 3/3 resets. The checkpoint is a local working milestone, not a
+  released clear artifact; see the
+  [Level-2 playbook](docs/level2_training_playbook.md#current-level-2-bootstrap-status-2026-08-16).
 
 ### Verified Level-1 artifact
 
@@ -114,8 +120,9 @@ python -c "import stable_retro as retro; env = retro.make('LifeForce-Nes-v0', st
 ## Usage
 
 All commands assume the venv is active (`source .venv/bin/activate`) and your ROM
-is imported. `src/config.py` selects the integration/reset state, so establish a
-real Level-2 state before running Level-2 training or canonical search; follow the
+is imported. The integration starts at Level 1 by default; `--initial-state`
+selects a settled later-stage state as the real reset target. Before Level-2
+training or canonical search, capture that state as described in the
 [`Level-2 training playbook`](docs/level2_training_playbook.md). For long runs,
 prefix with `caffeinate -is` so macOS sleep does not pause training.
 
@@ -147,7 +154,28 @@ Playback defaults to a live 3× window with sound. Useful flags include
 diagnostic probe, but a loaded state is not evidence of canonical full-run
 transfer.
 
-### 2. PPO bootstrap or broad adaptation
+### 2. Capture the next stage's canonical reset
+
+The released Level-1 policy can create the local, gitignored Level-2 start state
+directly from its verified transition:
+
+```bash
+python -m tools.capture_stage_start \
+  --model checkpoints/l3-level1-clear/lifeforce_ppo_bc5_lr1e4.zip \
+  --out states/l2_start.state --ram-out ram_dumps/l2_start_ram.npz
+
+# Verify the inherited policy from the settled, player-active Level-2 reset:
+python -m src.play \
+  --model checkpoints/l3-level1-clear/lifeforce_ppo_bc5_lr1e4.zip \
+  --initial-state states/l2_start.state --deterministic --episodes 3
+```
+
+The tool detects the real stage transition, waits through the fly-in until player
+control and lives are stable, and then saves the emulator state. This is the
+canonical reset for the standalone Level-2 specialist; the eventual continuous
+Level-1→2 model-switch handoff still needs its own validation.
+
+### 3. PPO bootstrap or broad adaptation
 
 Use PPO for generally weak play or a new mechanic, not as the automatic response
 to one precise, repeatable death.
@@ -176,11 +204,12 @@ For the vertical Level-2 baseline, disable the old horizontal positioning terms:
 ```bash
 python -m src.train \
   --resume checkpoints/<level2-base>.zip --run-name l2-adaptation \
+  --initial-state states/l2_start.state \
   --timesteps 250000 --curriculum-mix 0 \
   --reward-xpos 0 --reward-xmax 0
 ```
 
-### 3. Advance a localized frontier: canonical search and golden BC
+### 4. Advance a localized frontier: canonical search and golden BC
 
 Search from the real reset trajectory, record the entire winning continuation,
 then clone it into the policy that generated it:
@@ -188,6 +217,7 @@ then clone it into the policy that generated it:
 ```bash
 python -m tools.segment_search \
   --model checkpoints/<current-best>.zip \
+  --initial-state states/l2_start.state \
   --state RESET --warmup <steps-before-hazard> --name next_frontier \
   --beam 8 --rounds 20 --moves 0 1 2 3 4 5 6 7 8 \
   --durations 2 4 8 16 --continuation 800 \
@@ -203,7 +233,7 @@ python -m tools.self_imitation \
 # Accept only a gain reproduced from the real reset:
 python -m src.play \
   --model checkpoints/next/lifeforce_ppo_bc.zip \
-  --deterministic --episodes 3
+  --initial-state states/l2_start.state --deterministic --episodes 3
 ```
 
 `segment_search` requires 2/2 replay before saving a winner. `--script-cap`
@@ -212,7 +242,7 @@ save state for `RESET + warmup` when the maneuver must transfer to the full run.
 Evaluate the BC checkpoint before deciding whether any PPO robustness pass is
 needed.
 
-### 4. Optional save-state curriculum
+### 5. Optional save-state curriculum
 
 Curriculum is now a conditional tool for broad, noise-tolerant recovery skills,
 not the default frontier loop:
@@ -220,11 +250,12 @@ not the default frontier loop:
 ```bash
 python -m tools.capture_state \
   --model checkpoints/<run>/lifeforce_ppo_<N>_steps.zip \
+  --initial-state states/l2_start.state \
   --name recovery_leadin --before-death 120
 
 python -m src.train \
   --resume checkpoints/<run>/lifeforce_ppo_<N>_steps.zip \
-  --run-name recovery-drill \
+  --initial-state states/l2_start.state --run-name recovery-drill \
   --curriculum-glob states/recovery_leadin.state --curriculum-mix 0.3
 ```
 
@@ -234,7 +265,7 @@ curriculum result still needs a full cold-reset evaluation. Use
 `--curriculum-mix 0` to guarantee curriculum is off even if `states/` contains
 old captures.
 
-### 5. Monitor and tune
+### 6. Monitor and tune
 
 ```bash
 tensorboard --logdir tb_logs    # http://localhost:6006
@@ -281,7 +312,7 @@ The current loop is:
 5. **Crown only a cold-reset result.** A lower offline loss or a save-state probe
    is not enough. The final policy must reproduce the gain from `env.reset()`.
 
-The runnable commands live in [Usage](#3-advance-a-localized-frontier-canonical-search-and-golden-bc).
+The runnable commands live in [Usage](#4-advance-a-localized-frontier-canonical-search-and-golden-bc).
 Cached warmup actions and fast prefix replay keep every candidate in the real
 reset world while avoiding redundant CNN/image preprocessing; `--workers`
 scores independent candidates in parallel.

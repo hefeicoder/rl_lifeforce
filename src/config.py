@@ -11,6 +11,7 @@ STATE = "1Player.Level1"
 
 # RAM addresses (decimal). Confirmed via tools/ram_hunt.py + Data Crystal.
 ADDR_LIVES = 0x34          # P1 lives (also exposed in info by bundled data.json)
+ADDR_SCORE = 0x7E4         # P1 score, 3 packed-BCD bytes (internal value = HUD / 10)
 ADDR_X_POS = 0x350         # P1 X position (15..232)
 ADDR_Y_POS = 0x32F         # P1 Y position (24..197)
 ADDR_STAGE_NUM = 0x23      # "Demo Stage Num?" — remains 0 across the Level 1 clear

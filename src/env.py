@@ -5,7 +5,7 @@ Builds a Gymnasium/SB3-ready env from stable-retro:
     retro env (MultiBinary(9), 224x240x3)
       -> Discretizer        (Discrete action set -> button presses)
       -> MaxAndSkip         (act every FRAME_SKIP frames)
-      -> LifeForceWrapper   (RAM-based reward shaping, done, Stage-2 capture)
+      -> LifeForceWrapper   (RAM reward shaping, termination, transition capture)
       -> Grayscale/Resize/FrameStack
       -> TimeLimit
 
@@ -136,9 +136,9 @@ class LifeForceWrapper(gym.Wrapper):
     """RAM-based reward shaping + episode logic for Life Force.
 
     Reads the addresses found during the RAM hunt (see docs/ram_map.md) and
-    encodes the project's objective: stay alive, score, pass the level. Also
-    auto-captures the Stage-1 -> Stage-2 transition RAM the first time it is
-    seen. The clear run confirmed ADDR_STAGE_VERTICAL flips 0 -> 1.
+    encodes the project's objective: stay alive, score, pass the current stage.
+    Also auto-captures transition RAM the first time a stage change is seen. The
+    Level-1 clear confirmed ADDR_STAGE_VERTICAL flips 0 -> 1.
     """
 
     def __init__(self, env, reward_score_scale=None, reward_alive=None,
@@ -170,6 +170,15 @@ class LifeForceWrapper(gym.Wrapper):
             "shield": int(ram[C.ADDR_SHIELD]),
             "speed": int(ram[C.ADDR_SPEED]),
         }
+
+    @staticmethod
+    def _read_score(ram):
+        """Decode the integration's three meaningful packed-BCD score bytes."""
+        score = 0
+        for index, byte in enumerate(ram[C.ADDR_SCORE:C.ADDR_SCORE + 3]):
+            value = int(byte)
+            score += ((value >> 4) * 10 + (value & 0x0F)) * (100 ** index)
+        return score
 
     def _powerup_reward(self, ram):
         """Reward only INCREASES in power-up state, so upgrade caps self-enforce
@@ -216,6 +225,13 @@ class LifeForceWrapper(gym.Wrapper):
         self._x_max = x0
         self._x_sum = float(x0)
         self._x_count = 1
+        # Vertical-stage diagnostics. Screen y is tactical position, not world
+        # progress, so track it without attaching reward semantics.
+        y0 = int(ram[C.ADDR_Y_POS])
+        self._y_min = y0
+        self._y_max = y0
+        self._y_sum = float(y0)
+        self._y_count = 1
         # episode-local furthest-progress ratchet baseline (init to current x_frac)
         self._start_is_curr = bool(getattr(self.env.unwrapped, "_curriculum_start", False))
         self._start_label = getattr(self.env.unwrapped, "_curriculum_label", "level_start")
@@ -236,6 +252,11 @@ class LifeForceWrapper(gym.Wrapper):
             self._x_max = x_now
         self._x_sum += x_now
         self._x_count += 1
+        y_now = int(ram[C.ADDR_Y_POS])
+        self._y_min = min(self._y_min, y_now)
+        self._y_max = max(self._y_max, y_now)
+        self._y_sum += y_now
+        self._y_count += 1
 
         r_score = float(reward) * self._reward_score_scale
         r_alive = self._reward_alive
@@ -253,7 +274,7 @@ class LifeForceWrapper(gym.Wrapper):
                 terminated = True
         self._prev_lives = lives
 
-        # 3) pass the level: detect Stage-1 -> Stage-2 transition.
+        # 3) pass the current stage: detect a change in the stage RAM signature.
         stage_changed = (
             int(ram[C.ADDR_STAGE_VERTICAL]) != self._start_vertical
             or int(ram[C.ADDR_STAGE_NUM]) != self._start_stage
@@ -263,7 +284,7 @@ class LifeForceWrapper(gym.Wrapper):
             r_clear = C.REWARD_CLEAR
             info["stage_cleared"] = True
             self._capture_transition(ram)
-            terminated = True  # Level 1 done; we start from Level 1 only for now
+            terminated = True  # current stage done; next stage trains from its own reset
 
         # time limit (handled here so truncated episodes still report components)
         if self._steps >= C.MAX_EPISODE_STEPS:
@@ -321,6 +342,10 @@ class LifeForceWrapper(gym.Wrapper):
             info["max_x"] = self._x_max       # TRUE furthest screen-x reached
             info["terminal_x"] = x_now        # screen-x at death/timeout
             info["mean_x"] = self._x_sum / self._x_count
+            info["min_y"] = self._y_min       # screen-y diagnostics for vertical stages
+            info["max_y"] = self._y_max
+            info["terminal_y"] = y_now
+            info["mean_y"] = self._y_sum / self._y_count
             info["curriculum_start"] = self._start_is_curr  # split metrics by start source
             info["start_state"] = self._start_label
 
@@ -332,6 +357,10 @@ class LifeForceWrapper(gym.Wrapper):
         info["y_pos"] = int(ram[C.ADDR_Y_POS])
         info["stage_num"] = int(ram[C.ADDR_STAGE_NUM])
         info["stage_vertical"] = int(ram[C.ADDR_STAGE_VERTICAL])
+        # stable-retro exposes score after step(), but not in reset() metadata.
+        # Reading the same packed-BCD RAM keeps restored-state score deltas honest.
+        info["score"] = self._read_score(ram)
+        info.update(self._read_powerups(ram))
         return info
 
     def _capture_transition(self, ram):
@@ -391,6 +420,7 @@ def find_recorder(env):
 
 
 def make_env(render_mode=None, preprocess=True, record_av=False, curriculum=False, seed=0,
+             initial_state=None,
              curriculum_glob=None, curriculum_mix=None, frame_skip=None,
              reward_score_scale=None, reward_alive=None, reward_death=None,
              reward_xpos=None, x_front_frac=None, reward_xmax=None,
@@ -398,8 +428,10 @@ def make_env(render_mode=None, preprocess=True, record_av=False, curriculum=Fals
     """Build one fully-wrapped Life Force env (a thunk-friendly constructor).
 
     record_av=True inserts a FrameAudioRecorder inside the frame-skip so play.py
-    can write a video with sound. curriculum=True lets episodes start from saved
-    states (for drilling hard sections); seed varies the per-env start-state
+    can write a video with sound. initial_state is a gzipped emulator state used
+    as the environment's REAL reset target (e.g. the canonical Level-2 start),
+    distinct from curriculum sampling. curriculum=True lets episodes start from
+    saved states (for drilling hard sections); seed varies the per-env start-state
     sampling. curriculum_glob overrides which states are sampled (default: all of
     CURRICULUM_DIR/*.state) — e.g. "states/l3_wall.state" to drill ONE section.
     curriculum_mix overrides C.CURRICULUM_MIX (P(start from a curriculum state)).
@@ -408,6 +440,9 @@ def make_env(render_mode=None, preprocess=True, record_av=False, curriculum=Fals
     experiment knobs; omitted values use config.py exactly.
     """
     env = retro.make(C.GAME, state=C.STATE, render_mode=render_mode)
+    if initial_state:
+        with gzip.open(initial_state, "rb") as fh:
+            env.unwrapped.initial_state = fh.read()
     if curriculum:
         pattern = curriculum_glob or os.path.join(C.CURRICULUM_DIR, "*.state")
         mix = C.CURRICULUM_MIX if curriculum_mix is None else curriculum_mix
@@ -436,7 +471,7 @@ def make_env(render_mode=None, preprocess=True, record_av=False, curriculum=Fals
     return env
 
 
-def make_thunk(seed=0, render_mode=None, curriculum=True,
+def make_thunk(seed=0, render_mode=None, curriculum=True, initial_state=None,
                curriculum_glob=None, curriculum_mix=None, frame_skip=None,
                reward_score_scale=None, reward_alive=None, reward_death=None,
                reward_xpos=None, x_front_frac=None, reward_xmax=None,
@@ -445,11 +480,13 @@ def make_thunk(seed=0, render_mode=None, curriculum=True,
     Training envs use curriculum=True so they can start from saved hard-section
     states; seed varies both env seeding and curriculum sampling per env.
     curriculum_glob/curriculum_mix override which states are sampled and how often.
-    frame_skip overrides C.FRAME_SKIP for that env only. reward_* overrides are
-    passed into the worker env explicitly so SubprocVecEnv workers do not depend
-    on parent-process config mutation."""
+    initial_state selects the real reset before curriculum is applied. frame_skip
+    overrides C.FRAME_SKIP for that env only. reward_* overrides are passed into
+    the worker env explicitly so SubprocVecEnv workers do not depend on
+    parent-process config mutation."""
     def _init():
         env = make_env(render_mode=render_mode, curriculum=curriculum, seed=seed,
+                       initial_state=initial_state,
                        curriculum_glob=curriculum_glob, curriculum_mix=curriculum_mix,
                        frame_skip=frame_skip,
                        reward_score_scale=reward_score_scale,

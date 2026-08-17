@@ -68,7 +68,8 @@ def main():
     os.makedirs(os.path.dirname(args.out) or ".", exist_ok=True)
     model.save(args.out)
     print(f"saved BC'd model -> {args.out}")
-    print(f"next: python -m src.play --model {args.out} --deterministic --episodes 3")
+    print(f"next: python -m src.play --model {args.out} --deterministic --episodes 3 "
+          "[--initial-state <stage-start.state>]")
 
 
 if __name__ == "__main__":

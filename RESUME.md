@@ -527,13 +527,49 @@ release. Before any robustness PPO, evaluate stochastic clear rate separately;
 do not overwrite the deterministic release checkpoint with a later checkpoint.
 Level 2 is now a state/config task.
 
+## LEVEL 2 BOOTSTRAP: FIRST SPECIALIST
+
+Captured the real Level-1→2 transition with `tools.capture_stage_start`. The
+immediate transition snapshot was too early (`control=1`, lives still settling),
+so the tool now holds neutral input through the fly-in and captures after two
+stable `control=3` steps.
+
+Canonical Level-2 reset: `states/l2_start.state`
+
+- transition at Level-1 step 3642; settled capture at step 3663
+- start RAM: stage `0`, vertical `1`, control `3`, lives `4`, x/y `64/142`
+- loadout: Missile + one Option, speed 0
+- raw emulator-state SHA-256:
+  `41dca197a8c18a0e627c62a6f26f9707ebf8b1505a03ec285a9dd378b7730146`
+
+Frozen Level-1 model from this reset: **233 steps / score 2974 (+42)**, identical 3/3,
+churn 14.2%, HOLD 80.3%. Video showed competent opening play and one repeatable
+enemy/terrain-cluster death, so PPO was not indicated.
+
+Canonical search (`warmup=173`) accepted `DOWN+LEFT x16` in beam round 1:
+**362 steps (+129), continuation 173, reproduced 2/2**. Full golden demo:
+`demos/l2_s233_canonical1.npz` (362 examples).
+
+**LEVEL-2 FLAGSHIP:**
+`checkpoints/l2-golden-362/lifeforce_ppo_bc5_lr1e4.zip`
+
+- full-golden BC: 5 epochs, lr `1e-4`, loss 0.5755→0.0188
+- cold Level-2 reset: **362 steps / score 3007 (+75)**, identical 3/3
+- churn 20.5%, HOLD 71.8%
+- proof video: `videos/l2_golden362.mp4`
+- checkpoint SHA-256:
+  `0eece1eac3b036bab6be93ebeb80580fe8ef0d842326f006641eed3925c19d88`
+
+**Decision:** keep PPO deferred. Continue canonical search + full-golden BC from
+the step-362 frontier. Preserve the Level-1 release and this Level-2 checkpoint.
+
 ## Next steps
 
 Follow the dedicated [`docs/level2_training_playbook.md`](docs/level2_training_playbook.md).
 
-1. Establish the real Level-2 reset/integration state and capture its initial RAM
-   signature, including vertical-stage position and scroll-clock diagnostics.
-2. Run the released policy as a deterministic Level-2 baseline before changing
-   rewards or training.
-3. Confirm Level 2's clear signal, then repeat the canonical search + golden-run
-   loop without overwriting the Level-1 release artifact.
+1. Inspect the step-362 death and run canonical search from roughly 60-120 steps
+   before it using `--initial-state states/l2_start.state --state RESET`.
+2. Confirm whether the scroll clock remains a useful Level-2 progress diagnostic.
+3. Confirm Level 2's clear signal when reached; never infer it from screen position.
+4. After the standalone specialist clears, test the true continuous Level-1→2
+   frame-stack/model-switch handoff.

@@ -41,10 +41,12 @@ conditional recovery tools, not automatic stages.
   real reset trajectory.
 - The final working conversion method was canonical search followed by full-run
   golden recording and low-rate BC.
+- The settled Level-2 specialist reset is `states/l2_start.state`, captured from
+  the real Level-1 clear after player control became active. Its raw emulator-state
+  SHA-256 is `41dca197a8c18a0e627c62a6f26f9707ebf8b1505a03ec285a9dd378b7730146`.
 
 ### Must be measured before training
 
-- The exact Level-2 integration/reset state and its initial RAM signature.
 - Whether `0x002F` remains a useful scroll clock in the vertical stage.
 - The RAM change that corresponds to a real Level-2 clear. A change from vertical
   back to horizontal is plausible, but must not be assumed without video and RAM
@@ -52,8 +54,31 @@ conditional recovery tools, not automatic stages.
 - Whether the released policy's Missile + Option auto-buy rule remains the best
   Level-2 loadout.
 - Whether 5000 agent steps is a sufficient safety ceiling for Level 2.
-- The policy's natural vertical positioning, churn, HOLD rate, and first true
-  single-life death.
+- The Level-2 clear policy's eventual vertical positioning and loadout needs.
+
+## Current Level-2 bootstrap status (2026-08-16)
+
+The first specialist milestone is complete:
+
+- The Level-1→2 transition occurs at Level-1 step 3642. The settled start was
+  captured 21 agent steps later, after two stable active-control steps.
+- Start RAM: `stage_num=0`, `stage_vertical=1`, `control=3`, lives `4`,
+  `x=64`, `y=142`, Missile + one Option, speed `0`.
+- Frozen Level-1 policy baseline: **233 steps / score 2974 (+42)**, reproduced 3/3;
+  churn 14.2%, HOLD 80.3%.
+- The first canonical search started at warmup step 173 and found
+  `DOWN+LEFT x16` in round 1: **362 steps (+129)** with a 173-step greedy
+  continuation, reproduced 2/2.
+- Full-trajectory BC (362 examples, 5 epochs, lr `1e-4`) produced the first
+  Level-2 specialist:
+  `checkpoints/l2-golden-362/lifeforce_ppo_bc5_lr1e4.zip`.
+- The specialist reproduces **362 steps / score 3007 (+75)** in 3/3 cold Level-2
+  resets. Demo: `demos/l2_s233_canonical1.npz`; proof video:
+  `videos/l2_golden362.mp4`.
+
+**Decision:** continue the canonical search + full-golden BC loop from the
+step-362 death. General opening play is already competent and the first failure
+was corrected by a single localized maneuver, so broad PPO is deferred.
 
 ## What changes in a vertical stage
 
@@ -80,8 +105,8 @@ targets.
 Do this before PPO, curriculum capture, or search:
 
 1. Preserve the Level-1 release checkpoint unchanged.
-2. Add or select a real Level-2 stable-retro integration state and make it the
-   environment's default reset state.
+2. Capture a settled Level-2 emulator state from the true transition and select
+   it with `--initial-state`, making it the environment's real reset target.
 3. Confirm reset begins with `stage_vertical=1`, active player control, expected
    lives, and a coherent power-up state.
 4. Record a short no-op/deterministic video and RAM trace.
@@ -89,9 +114,19 @@ Do this before PPO, curriculum capture, or search:
 6. Run until a genuine death or clear and distinguish `terminated`, `truncated`,
    and life loss.
 
-An ad-hoc `.state` loaded with `--from-state` is useful for diagnosis, but it is
-not the final canonical world. `segment_search --state RESET` must reset into the
-actual Level-2 integration before its results are trusted.
+Current capture command:
+
+```bash
+python -m tools.capture_stage_start \
+  --model checkpoints/l3-level1-clear/lifeforce_ppo_bc5_lr1e4.zip \
+  --out states/l2_start.state --ram-out ram_dumps/l2_start_ram.npz
+```
+
+An intermediate/ad-hoc `.state` loaded directly with `--from-state` is useful for
+diagnosis, but it is not a canonical search world. The settled
+`states/l2_start.state` is different: `--initial-state` installs it as the real
+reset target, and `segment_search --state RESET` must reset into that target for
+results to be trusted.
 
 ## Phase 1: baseline before changing training
 
@@ -159,6 +194,7 @@ warmup remains part of the real reset trajectory:
 ```bash
 python -m tools.segment_search \
   --model checkpoints/<level2-best>.zip \
+  --initial-state states/l2_start.state \
   --state RESET --warmup <steps-before-hazard> \
   --name l2_golden_<frontier> \
   --beam 8 --rounds 20 --moves 0 1 2 3 4 5 6 7 8 \
@@ -264,4 +300,3 @@ Use these only when the simple loop provides evidence that they are needed:
 
 These experiments were useful because they diagnosed failure modes. The canonical
 golden-run method supersedes them as the normal advancement loop.
-

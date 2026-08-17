@@ -16,7 +16,6 @@ Usage:
   python -m src.play --model ... --render video --no-audio                  # silent mp4
 """
 import argparse
-import gzip
 import os
 import subprocess
 import tempfile
@@ -72,8 +71,9 @@ def main():
     p.add_argument("--scale", type=int, default=3, help="live window size = native x scale")
     p.add_argument("--aspect", type=float, default=4 / 3,
                    help="live window width:height ratio (0 = keep native, ~square)")
-    p.add_argument("--from-state", default=None, dest="from_state",
-                   help="start every episode from a saved .state (e.g. states/l1_gauntlet.state)")
+    p.add_argument("--initial-state", "--from-state", default=None, dest="initial_state",
+                   help="use a gzipped emulator state as the real reset target "
+                        "(--from-state is retained as an alias)")
     p.add_argument("--frame-skip", type=int, default=None, dest="frame_skip",
                    help=f"override env frame-skip for playback (default config={C.FRAME_SKIP})")
     p.add_argument("--out", default=os.path.join(C.VIDEO_DIR, "play.mp4"))
@@ -81,10 +81,8 @@ def main():
 
     live = args.render == "human"
     record_av = args.audio          # capture every frame's video+audio when sound is wanted
-    env = make_env(render_mode="rgb_array", record_av=record_av, frame_skip=args.frame_skip)
-    if args.from_state:             # start from a captured curriculum/wall state
-        with gzip.open(args.from_state, "rb") as fh:
-            env.unwrapped.initial_state = fh.read()
+    env = make_env(render_mode="rgb_array", record_av=record_av,
+                   initial_state=args.initial_state, frame_skip=args.frame_skip)
     model = PPO.load(args.model)
     recorder = find_recorder(env)
 
@@ -115,10 +113,20 @@ def main():
     frames, cleared_count = [], 0
     for ep in range(args.episodes):
         obs, info = env.reset(seed=ep)
+        start_score = int(info.get("score", 0))
+        start_loadout = (int(info.get("missile", 0)), int(info.get("options", 0)),
+                         int(info.get("speed", 0)))
         done = False
         ep_reward, steps = 0.0, 0
+        move_counts = np.zeros(len(C.MOVES), dtype=np.int64)
+        prev_move, move_changes = None, 0
         while not done:
             action, _ = model.predict(obs, deterministic=args.deterministic)
+            move = int(np.asarray(action).ravel()[0])
+            move_counts[move] += 1
+            if prev_move is not None and move != prev_move:
+                move_changes += 1
+            prev_move = move
             obs, reward, term, trunc, info = env.step(action)   # MultiDiscrete: [move, activate]
             if loop_renders:
                 frame = env.unwrapped.render()
@@ -136,11 +144,23 @@ def main():
         cleared = info.get("stage_cleared", False)
         cleared_count += int(cleared)
         mean_x = info.get("mean_x")
+        mean_y = info.get("mean_y")
         mean_x_s = "n/a" if mean_x is None else f"{mean_x:.1f}"
-        print(f"ep {ep}: score={info.get('score')} steps={steps} "
+        mean_y_s = "n/a" if mean_y is None else f"{mean_y:.1f}"
+        reason = ("clear" if cleared else "life_loss" if info.get("life_lost")
+                  else "truncated" if trunc else "terminated" if term else "stopped")
+        churn = 100.0 * move_changes / max(steps - 1, 1)
+        hold = 100.0 * int(move_counts[0]) / max(steps, 1)
+        score = int(info.get("score", 0))
+        print(f"ep {ep}: score={score} (+{score-start_score}) steps={steps} "
               f"reward={ep_reward:.1f} "
               f"max_x={info.get('max_x')} terminal_x={info.get('terminal_x')} "
-              f"mean_x={mean_x_s} "
+              f"mean_x={mean_x_s} y={info.get('min_y')}..{info.get('max_y')} "
+              f"terminal_y={info.get('terminal_y')} mean_y={mean_y_s} "
+              f"stage={info.get('stage_num')}/{info.get('stage_vertical')} "
+              f"loadout=mis{start_loadout[0]}/opt{start_loadout[1]}/spd{start_loadout[2]}"
+              f"->mis{info.get('missile')}/opt{info.get('options')}/spd{info.get('speed')} "
+              f"churn={churn:.1f}% hold={hold:.1f}% reason={reason} "
               f"{'CLEARED STAGE' if cleared else 'did not clear'}")
         if quit_flag["q"]:
             break
