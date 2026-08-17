@@ -62,6 +62,9 @@ Direct downloads:
 
 - **[`RESUME.md`](RESUME.md)** — authoritative current handoff: the complete
   milestone history, final checkpoint, verified clear, and next steps.
+- **[`docs/level2_training_playbook.md`](docs/level2_training_playbook.md)** —
+  operational Level-2 plan: vertical-stage assumptions, strategy decision guide,
+  canonical golden-run loop, and acceptance gates.
 - **[`docs/go-explore-l3-progress.md`](docs/go-explore-l3-progress.md)** — detailed
   historical experiments and measured failure modes through the anti-jitter era.
 - **[`docs/devlog.md`](docs/devlog.md)** — early pipeline/reward/curriculum design

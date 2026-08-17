@@ -529,8 +529,10 @@ Level 2 is now a state/config task.
 
 ## Next steps
 
+Follow the dedicated [`docs/level2_training_playbook.md`](docs/level2_training_playbook.md).
+
 1. Establish the real Level-2 reset/integration state and capture its initial RAM
-   signature.
+   signature, including vertical-stage position and scroll-clock diagnostics.
 2. Run the released policy as a deterministic Level-2 baseline before changing
    rewards or training.
 3. Confirm Level 2's clear signal, then repeat the canonical search + golden-run
