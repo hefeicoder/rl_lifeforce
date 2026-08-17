@@ -27,7 +27,8 @@ own ROM, and extending the game integration (finding RAM addresses) yourself.
 - ✅ **Training pipeline** — env factory (MultiDiscrete actions; survival + score
   + power-up reward shaping), PPO with stability fixes (`target_kl`, LR annealing,
   reward normalization), TensorBoard metrics, and a live/video player.
-- ✅ **Save-state curriculum** — capture a hard spot, auto-mix it into training.
+- ✅ **Optional save-state curriculum** — retained for broad, noise-tolerant
+  recovery skills; canonical reset search is the default for precision hazards.
 - ✅ **Canonical search + imitation loop** — search from the true reset
   trajectory, record the full golden run, then behavior-clone it back into the
   policy (see [Training strategy](#training-strategy-ppo-bootstrap-and-canonical-golden-runs)).
@@ -113,73 +114,144 @@ python -c "import stable_retro as retro; env = retro.make('LifeForce-Nes-v0', st
 ## Usage
 
 All commands assume the venv is active (`source .venv/bin/activate`) and your ROM
-is imported. For long/overnight runs, prefix with **`caffeinate -is`** so macOS
-sleep doesn't pause training. `<run>` below = a folder under `checkpoints/`.
+is imported. `src/config.py` selects the integration/reset state, so establish a
+real Level-2 state before running Level-2 training or canonical search; follow the
+[`Level-2 training playbook`](docs/level2_training_playbook.md). For long runs,
+prefix with `caffeinate -is` so macOS sleep does not pause training.
 
-### 1. Train from scratch
-```bash
-python -m src.train --run-name my-run     # fresh run -> checkpoints/my-run/
-python -m src.train --smoke               # ~30s end-to-end sanity check first
-```
-Runs `N_ENVS=16` emulators in parallel on the GPU (MPS) by default — no flags
-needed (`--device auto` picks MPS on Apple Silicon). Each run gets its own
-`checkpoints/<run-name>/` (a timestamp if `--run-name` is omitted) and a matching
-TensorBoard run, so runs never overwrite each other.
+### 1. Download and evaluate the released checkpoint
 
-### 2. Resume from a checkpoint
 ```bash
-python -m src.train --resume checkpoints/<run>/lifeforce_ppo_<N>_steps.zip --run-name my-run-v2
-```
-Loads the policy **and** that run's `vecnormalize.pkl`. The continuation gets a
-new folder (SB3 resets the step counter on resume — that's why per-run folders
-matter). Reward/PPO changes in `config.py` apply on resume; action-space/
-`FRAME_SIZE` changes do **not** (those need a fresh train).
+mkdir -p checkpoints/l3-level1-clear
+curl -L \
+  https://github.com/hefeicoder/rl_lifeforce/releases/download/level1-clear-v1/lifeforce_ppo_bc5_lr1e4.zip \
+  -o checkpoints/l3-level1-clear/lifeforce_ppo_bc5_lr1e4.zip
 
-### 3. Curriculum — drill a hard spot, then train
-```bash
-# capture where the agent gets stuck (its death point; --before-death = lead-in):
-python -m tools.capture_state --model checkpoints/<run>/lifeforce_ppo_<N>_steps.zip \
-  --name l1_gauntlet --before-death 120
-# resume — every *.state in states/ auto-mixes into ~CURRICULUM_MIX of episodes:
-python -m src.train --resume checkpoints/<run>/lifeforce_ppo_<N>_steps.zip --run-name l1-drill
-```
-Drop a `.state` in `states/` to add a drill point, delete it to remove one; an
-**empty `states/` = curriculum off** (100% level start). The real level start is
-always kept, so the agent still learns the whole stage. (Save states embed
-ROM-derived data → `states/` is gitignored; regenerate with the capture tool.)
+shasum -a 256 checkpoints/l3-level1-clear/lifeforce_ppo_bc5_lr1e4.zip
 
-### 4. Play / watch
-```bash
-# verified Level-1 clear (after downloading the release asset):
+# Cold deterministic evaluation from the integration's real reset:
 python -m src.play \
   --model checkpoints/l3-level1-clear/lifeforce_ppo_bc5_lr1e4.zip \
-  --deterministic --episodes 1
+  --deterministic --episodes 3
 
-# from the level start — default is a live 3x window with sound:
-python -m src.play --model checkpoints/<run>/lifeforce_ppo_final.zip
-# from a saved state (e.g. a captured wall):
-python -m src.play --model checkpoints/<run>/lifeforce_ppo_final.zip --from-state states/l1_gauntlet.state
+# Record a proof/diagnostic video instead of opening the live window:
+python -m src.play \
+  --model checkpoints/l3-level1-clear/lifeforce_ppo_bc5_lr1e4.zip \
+  --deterministic --episodes 1 --render video --out videos/eval.mp4
 ```
-Useful flags: `--deterministic` (greedy/argmax — shows the agent's "best intended"
-play; default is stochastic sampling), `--no-audio`, `--scale N` (window size),
-`--render video` (record `videos/play.mp4` instead of a live window; keeps sound).
-Stop training first for smooth live audio.
 
-### 5. Monitor (TensorBoard)
+The expected checkpoint SHA-256 is
+`4b06e817640cfaaa0e2af2f5418f9cd16e75d20e5332cd654889eca61df6aac2`.
+Playback defaults to a live 3× window with sound. Useful flags include
+`--no-audio`, `--scale N`, and `--aspect 0`. `--from-state` is useful for a
+diagnostic probe, but a loaded state is not evidence of canonical full-run
+transfer.
+
+### 2. PPO bootstrap or broad adaptation
+
+Use PPO for generally weak play or a new mechanic, not as the automatic response
+to one precise, repeatable death.
+
+```bash
+# End-to-end sanity check, forced to the real reset even if states/ is populated:
+python -m src.train --smoke --curriculum-mix 0
+
+# Fresh PPO policy:
+python -m src.train --run-name my-bootstrap --curriculum-mix 0
+
+# Continue an existing policy in a new output folder:
+python -m src.train \
+  --resume checkpoints/<run>/lifeforce_ppo_<N>_steps.zip \
+  --run-name my-adaptation --timesteps 250000 --curriculum-mix 0
+```
+
+Training uses 16 emulator processes and `--device auto` selects MPS on Apple
+Silicon. Every run gets its own `checkpoints/<run-name>/` and TensorBoard folder.
+On resume, matching `VecNormalize` statistics are loaded when present beside the
+checkpoint; otherwise reward normalization starts fresh. Reward/PPO overrides can
+change on resume, but the action space and `FRAME_SIZE` require a fresh policy.
+
+For the vertical Level-2 baseline, disable the old horizontal positioning terms:
+
+```bash
+python -m src.train \
+  --resume checkpoints/<level2-base>.zip --run-name l2-adaptation \
+  --timesteps 250000 --curriculum-mix 0 \
+  --reward-xpos 0 --reward-xmax 0
+```
+
+### 3. Advance a localized frontier: canonical search and golden BC
+
+Search from the real reset trajectory, record the entire winning continuation,
+then clone it into the policy that generated it:
+
+```bash
+python -m tools.segment_search \
+  --model checkpoints/<current-best>.zip \
+  --state RESET --warmup <steps-before-hazard> --name next_frontier \
+  --beam 8 --rounds 20 --moves 0 1 2 3 4 5 6 7 8 \
+  --durations 2 4 8 16 --continuation 800 \
+  --script-cap <warmup-plus-budget> \
+  --record-continuation --workers 4
+
+python -m tools.self_imitation \
+  --model checkpoints/<current-best>.zip \
+  --demos demos/next_frontier.npz \
+  --out checkpoints/next/lifeforce_ppo_bc.zip \
+  --epochs 5 --lr 1e-4
+
+# Accept only a gain reproduced from the real reset:
+python -m src.play \
+  --model checkpoints/next/lifeforce_ppo_bc.zip \
+  --deterministic --episodes 3
+```
+
+`segment_search` requires 2/2 replay before saving a winner. `--script-cap`
+includes the warmup. Do not use `--greedy-move`; do not substitute a reloaded
+save state for `RESET + warmup` when the maneuver must transfer to the full run.
+Evaluate the BC checkpoint before deciding whether any PPO robustness pass is
+needed.
+
+### 4. Optional save-state curriculum
+
+Curriculum is now a conditional tool for broad, noise-tolerant recovery skills,
+not the default frontier loop:
+
+```bash
+python -m tools.capture_state \
+  --model checkpoints/<run>/lifeforce_ppo_<N>_steps.zip \
+  --name recovery_leadin --before-death 120
+
+python -m src.train \
+  --resume checkpoints/<run>/lifeforce_ppo_<N>_steps.zip \
+  --run-name recovery-drill \
+  --curriculum-glob states/recovery_leadin.state --curriculum-mix 0.3
+```
+
+Saved states embed ROM-derived data and are gitignored. Cold frame stacks and
+emulator-phase differences can make precision skills fail after reload, so every
+curriculum result still needs a full cold-reset evaluation. Use
+`--curriculum-mix 0` to guarantee curriculum is off even if `states/` contains
+old captures.
+
+### 5. Monitor and tune
+
 ```bash
 tensorboard --logdir tb_logs    # http://localhost:6006
+python -m src.train --help
+python -m tools.segment_search --help
 ```
-**The key chart is `lifeforce/best_score`** — the absolute score reached; it
-crossing a plateau = a real breakthrough. Also `lifeforce/clear_rate` and the
-`reward/*` breakdown. **Caveat:** with curriculum on, `reward/*` averages are
-*diluted* by wall-start episodes — judge progress by `lifeforce/best_score`, not
-the reward averages.
 
-### Tuning
-Most knobs live in [`src/config.py`](src/config.py): reward weights (`REWARD_*`),
-`CURRICULUM_MIX`, PPO hyperparameters, `FRAME_SIZE`. Handy CLI overrides:
-`--ent-coef` (raise it, e.g. `0.03`, for more exploration to break a plateau),
-`--save-freq`, `--timesteps`, `--device`.
+The primary training charts are `lifeforce/recent_best_steps` for current
+single-life progress, `lifeforce/best_steps` for the all-time envelope, and
+`lifeforce/clear_rate` for the goal. Score is secondary because farming and route
+choice can change it without advancing the stage. During curriculum runs, also
+watch `curr/recent_best_steps`; `reward/*` averages combine episodes from different
+start states and are not a full-level acceptance test.
+
+Most defaults live in [`src/config.py`](src/config.py). Prefer explicit CLI
+overrides for experiments, name every output run, sweep intermediate checkpoints,
+and preserve the current deterministic best before PPO or BC.
 
 ## Training strategy: PPO bootstrap and canonical golden runs
 
@@ -203,29 +275,13 @@ The current loop is:
    warm level-start prefix, scripted correction, and greedy continuation as one
    observation/action dataset. Winners are independently reproduced twice before
    being saved.
-4. **Clone back into the generating policy.** Early large maneuvers tolerated
-   the default BC dose. In the boss fight, the stable measured dose was 5 epochs
-   at `--lr 1e-4`; larger updates distorted the trajectory.
+4. **Clone back into the generating policy.** Start with 5 epochs at `--lr
+   1e-4`; increase epochs before increasing the learning rate. Larger updates
+   distorted otherwise-good boss trajectories.
 5. **Crown only a cold-reset result.** A lower offline loss or a save-state probe
    is not enough. The final policy must reproduce the gain from `env.reset()`.
 
-Example canonical search:
-
-```bash
-python -m tools.segment_search \
-  --model checkpoints/<run>/lifeforce_ppo_final.zip \
-  --state RESET --warmup <steps-before-hazard> --name next_frontier \
-  --beam 8 --rounds 20 --moves 0 1 2 3 4 5 6 7 8 \
-  --durations 2 4 8 16 --continuation 800 \
-  --script-cap <warmup-plus-budget> --record-continuation --workers 4
-
-python -m tools.self_imitation \
-  --model checkpoints/<run>/lifeforce_ppo_final.zip \
-  --demos demos/next_frontier.npz \
-  --out checkpoints/next/lifeforce_ppo_bc.zip \
-  --epochs 5 --lr 1e-4
-```
-
+The runnable commands live in [Usage](#3-advance-a-localized-frontier-canonical-search-and-golden-bc).
 Cached warmup actions and fast prefix replay keep every candidate in the real
 reset world while avoiding redundant CNN/image preprocessing; `--workers`
 scores independent candidates in parallel.

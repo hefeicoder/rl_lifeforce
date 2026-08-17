@@ -141,7 +141,7 @@ def main():
               f"reward={ep_reward:.1f} "
               f"max_x={info.get('max_x')} terminal_x={info.get('terminal_x')} "
               f"mean_x={mean_x_s} "
-              f"{'CLEARED LEVEL 1' if cleared else 'did not clear'}")
+              f"{'CLEARED STAGE' if cleared else 'did not clear'}")
         if quit_flag["q"]:
             break
 

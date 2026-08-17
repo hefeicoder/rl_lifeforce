@@ -337,7 +337,9 @@ def fmt_plan(plan):
 def main():
     p = argparse.ArgumentParser()
     p.add_argument("--model", required=True)
-    p.add_argument("--state", required=True, help="start .state (gzipped); loaded FRESH per candidate")
+    p.add_argument("--state", required=True,
+                   help="RESET for canonical env.reset()+--warmup, or a gzipped "
+                        ".state for diagnostic reload-world search")
     p.add_argument("--name", required=True, help="output base -> demos/<name>.npz, states/<name>.state")
     p.add_argument("--segments", type=int, default=3)
     p.add_argument("--moves", type=int, nargs="+", default=DEFAULT_MOVES,

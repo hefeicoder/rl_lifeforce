@@ -1,17 +1,17 @@
-"""Behaviour-clone agent-found demos into the policy, then hand back to PPO.
+"""Behaviour-clone agent-found golden trajectories into the policy.
 
-Loads a PPO checkpoint + Go-Explore demo(s) (obs/action pairs from
-tools/explore_frontier.py) and supervised-trains the policy's action distribution to
-reproduce the demo actions: negative log-likelihood over BOTH MultiDiscrete heads
-(movement + activate). Small LR + few epochs so it SEEDS the discovered maneuver
-without destroying the rest of the policy's learned behaviour. Save the result, then
-resume normal PPO so the survival reward robustifies it (self-imitation loop).
+Loads a PPO checkpoint plus demo(s) containing observation/action pairs and
+supervised-trains the policy's action distribution to reproduce them: negative
+log-likelihood over both MultiDiscrete heads (movement + activate). The current
+standard is a complete canonical reset-to-continuation trajectory recorded by
+``segment_search --record-continuation``. Use a small LR/few epochs, then evaluate
+the clone from the real reset before considering optional PPO robustness training.
 
 Usage:
-  python -m tools.self_imitation --model <ckpt> --demos demos/l3_bridge.npz \
-    --out checkpoints/l3-bc/lifeforce_ppo_bc.zip
-  # then:
-  python -m src.train --resume checkpoints/l3-bc/lifeforce_ppo_bc.zip --run-name l3-bc-ppo
+  python -m tools.self_imitation --model <ckpt> --demos demos/next_frontier.npz \
+    --out checkpoints/next/lifeforce_ppo_bc.zip --epochs 5 --lr 1e-4
+  python -m src.play --model checkpoints/next/lifeforce_ppo_bc.zip \
+    --deterministic --episodes 3
 """
 import argparse
 import glob
@@ -68,7 +68,7 @@ def main():
     os.makedirs(os.path.dirname(args.out) or ".", exist_ok=True)
     model.save(args.out)
     print(f"saved BC'd model -> {args.out}")
-    print(f"next: python -m src.train --resume {args.out} --run-name <name> --ent-coef 0.05")
+    print(f"next: python -m src.play --model {args.out} --deterministic --episodes 3")
 
 
 if __name__ == "__main__":
