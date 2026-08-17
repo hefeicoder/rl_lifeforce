@@ -36,23 +36,27 @@ own ROM, and extending the game integration (finding RAM addresses) yourself.
   steps change movement direction); added movement/churn reward penalties and
   HOLD to the search vocabulary. The first calm policy reduced churn 64→41%;
   the final clear policy reaches **19% churn / 62.9% HOLD**.
-- ✅ **Level 1 cleared** — `checkpoints/l3-level1-clear/lifeforce_ppo_bc5_lr1e4.zip`
+- ✅ **Level 1 cleared** — the
+  [release checkpoint](https://github.com/hefeicoder/rl_lifeforce/releases/download/level1-clear-v1/lifeforce_ppo_bc5_lr1e4.zip)
   clears deterministically in **3642 steps / score 2932**, verified 3/3 from a
-  cold level reset. Proof video: `videos/l3_level1_clear.mp4`.
+  cold level reset. [Proof video](https://github.com/hefeicoder/rl_lifeforce/releases/download/level1-clear-v1/l3_level1_clear.mp4).
 
 ### Verified Level-1 artifact
 
 The final checkpoint is a 58 MB generated binary and remains outside normal Git
-history (like all training outputs). Local artifact:
+history (like all training outputs). Download it from the
+[Level 1 Clear v1 release](https://github.com/hefeicoder/rl_lifeforce/releases/tag/level1-clear-v1)
+into this local path:
 
 ```text
 checkpoints/l3-level1-clear/lifeforce_ppo_bc5_lr1e4.zip
 SHA-256 4b06e817640cfaaa0e2af2f5418f9cd16e75d20e5332cd654889eca61df6aac2
 ```
 
-The downloadable asset has not been published yet. Publish it as a GitHub
-Release asset rather than committing it to the branch; then download it into
-the path above before using the playback command.
+Direct downloads:
+
+- [Checkpoint](https://github.com/hefeicoder/rl_lifeforce/releases/download/level1-clear-v1/lifeforce_ppo_bc5_lr1e4.zip)
+- [Proof video](https://github.com/hefeicoder/rl_lifeforce/releases/download/level1-clear-v1/l3_level1_clear.mp4)
 
 ## Docs
 
