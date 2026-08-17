@@ -12,10 +12,9 @@ explore_frontier).
 Reproducibility by construction (the failure that invalidated the earlier
 Go-Explore run): every candidate starts from a FRESH load of the saved state --
 there is no greedy advance-to-near-failure phase whose accumulated emulator state
-can't be reproduced. The optional --warmup N greedy steps are RE-COMPUTED inside
-every rollout (deterministic policy from a deterministic reset), never captured
-as an intermediate state. Winners are re-verified with independent reloads before
-anything is saved.
+can't be reproduced. The optional --warmup N greedy actions are computed once and
+replayed from a fresh reset inside every rollout, never loaded from an intermediate
+state. Winners are re-verified with independent resets before anything is saved.
 
 Usage:
   python -m tools.segment_search \
@@ -30,6 +29,7 @@ Outputs (only if a verified candidate beats the greedy baseline by --min-gain):
 import argparse
 import gzip
 import itertools
+import multiprocessing as mp
 import os
 import time
 
@@ -37,7 +37,7 @@ import numpy as np
 from stable_baselines3 import PPO
 
 from src import config as C
-from src.env import make_env
+from src.env import LifeForceWrapper, make_env
 
 # Default segment move vocabulary (indices into C.MOVES): the commit-through is a
 # forward thread whose unknown is the Y-line, so sweep RIGHT-biased moves plus
@@ -51,6 +51,13 @@ ACT_MOVE = -2                          # pseudo-move: HOLD + press A for one ste
                                        # power-up under the meter cursor). One vocab entry,
                                        # so activation costs +1 branching, not 2x.
 
+_WORKER_ENV = None
+_WORKER_MODEL = None
+_WORKER_START = None
+_WORKER_WARMUP = 0
+_WORKER_CONTINUATION = 0
+_WORKER_WARMUP_ACTIONS = None
+
 
 def load_state(path):
     with gzip.open(path, "rb") as fh:
@@ -63,8 +70,9 @@ def save_state(path, data):
         fh.write(data)
 
 
-def rollout(env, start, model, plan, warmup, cont_cap, record=False):
-    """Fresh load of `start` -> `warmup` greedy steps (recomputed, deterministic)
+def rollout(env, start, model, plan, warmup, cont_cap, record=False,
+            record_continuation=False, warmup_actions=None):
+    """Fresh load of `start` -> deterministic `warmup` greedy steps/actions
     -> scripted segments `plan` = [(move_idx, duration), ...] -> greedy
     continuation. Returns score dict; obs/actions of warmup+segments if record."""
     if start is not None:                         # None = canonical reset (true level
@@ -72,26 +80,58 @@ def rollout(env, start, model, plan, warmup, cont_cap, record=False):
     obs, _ = env.reset()                          # divergence — see RESUME.md)
     d_obs, d_acts = [], []
     steps, max_x, cleared, done = 0, 0, False, False
+    terminated, truncated, info = False, False, {}
 
     rec = {"on": record}                          # demo = warmup+segments ONLY, not
                                                   # the greedy continuation (it would
                                                   # dilute the BC signal ~5:1)
     def _step(act):
-        nonlocal obs, steps, max_x, cleared, done
+        nonlocal obs, steps, max_x, cleared, done, terminated, truncated, info
         if rec["on"]:
             d_obs.append(np.asarray(obs, dtype=np.uint8))
             d_acts.append(np.asarray(act))
-        obs, _, term, trunc, info = env.step(act)
+        obs, _, terminated, truncated, info = env.step(act)
         steps += 1
         max_x = max(max_x, int(info.get("x_pos", 0)))
         cleared = cleared or bool(info.get("stage_cleared"))
-        done = term or trunc
+        done = terminated or truncated
 
-    for _ in range(warmup):                       # deterministic run-up, re-computed
+    # Cached-action search does not need resized/stacked observations for the
+    # old prefix. Step the gameplay/reward wrapper directly, then run the final
+    # FRAME_STACK actions through the full observation pipeline to rebuild the
+    # exact current policy input. Recording still uses the full pipeline because
+    # every observation belongs in a golden demo.
+    gameplay_env = env
+    while not isinstance(gameplay_env, LifeForceWrapper):
+        gameplay_env = gameplay_env.env
+
+    def _fast_step(act):
+        nonlocal steps, max_x, cleared, done, terminated, truncated, info
+        _, _, terminated, truncated, info = gameplay_env.step(act)
+        steps += 1
+        max_x = max(max_x, int(info.get("x_pos", 0)))
+        cleared = cleared or bool(info.get("stage_cleared"))
+        done = terminated or truncated
+
+    if warmup_actions is not None and len(warmup_actions) != warmup:
+        raise ValueError(f"cached warmup has {len(warmup_actions)} actions, expected {warmup}")
+    fast_until = 0
+    if warmup_actions is not None and not record:
+        fast_until = max(0, warmup - C.FRAME_STACK)
+    for i in range(warmup):                       # deterministic canonical run-up
         if done:
             break
-        a, _ = model.predict(obs, deterministic=True)
-        _step(a)
+        if warmup_actions is None:
+            a, _ = model.predict(obs, deterministic=True)
+        else:
+            # Replaying the policy's previously computed deterministic actions
+            # preserves the canonical reset world while avoiding thousands of
+            # redundant CNN inferences for every search candidate.
+            a = warmup_actions[i]
+        if i < fast_until:
+            _fast_step(a)
+        else:
+            _step(a)
 
     seg_end_state = None
     for move, dur in plan:                        # the scripted segments
@@ -113,7 +153,8 @@ def rollout(env, start, model, plan, warmup, cont_cap, record=False):
             break
     if not done:
         seg_end_state = env.unwrapped.em.get_state()
-    survived_segments = not done
+    # A stage clear during the script is success, not an in-script failure.
+    survived_segments = not done or cleared
     # loadout AT THE HANDOFF (end of script): this is what the script achieved.
     # Measured here, not at episode end — the greedy continuation may waste the
     # banked capsules (e.g. A-mashing buys Speed), which would erase the ranking
@@ -123,7 +164,11 @@ def rollout(env, start, model, plan, warmup, cont_cap, record=False):
                "options": int(ram[C.ADDR_OPTIONS]), "shield": int(ram[C.ADDR_SHIELD]),
                "speed": int(ram[C.ADDR_SPEED])}
 
-    rec["on"] = False
+    # Normal search demos contain only the warmup+script so a long continuation
+    # does not dilute the new maneuver.  Golden-run demos deliberately retain the
+    # whole continuous trajectory: familiar greedy frames protect old skills while
+    # the scripted correction is cloned in its true, warm-frame-stack context.
+    rec["on"] = bool(record and record_continuation)
     c = 0
     while not done and c < cont_cap:              # clean-handoff scoring
         a, _ = model.predict(obs, deterministic=True)
@@ -141,12 +186,35 @@ def rollout(env, start, model, plan, warmup, cont_cap, record=False):
           + 7 * loadout["shield"])
 
     return {"steps": steps, "max_x": max_x, "cleared": cleared,
+            "terminated": terminated, "truncated": truncated,
+            "life_lost": bool(info.get("life_lost")),
             "survived_segments": survived_segments, "handoff": seg_end_state,
             "obs": d_obs, "acts": d_acts, "plan": plan,
             "loadout": loadout, "pu": pu}
 
 
-def beam_search(env, start, model, args, base):
+def _init_rollout_worker(model_path, start, seed, warmup, continuation,
+                         warmup_actions):
+    """Initialize one persistent emulator/model pair for parallel beam scoring."""
+    global _WORKER_ENV, _WORKER_MODEL, _WORKER_START, _WORKER_WARMUP
+    global _WORKER_CONTINUATION, _WORKER_WARMUP_ACTIONS
+    _WORKER_ENV = make_env(preprocess=True, curriculum=False, seed=seed)
+    _WORKER_MODEL = PPO.load(model_path, device="cpu")
+    _WORKER_START = start
+    _WORKER_WARMUP = warmup
+    _WORKER_CONTINUATION = continuation
+    _WORKER_WARMUP_ACTIONS = warmup_actions
+
+
+def _worker_rollout(plan):
+    return rollout(
+        _WORKER_ENV, _WORKER_START, _WORKER_MODEL, plan,
+        _WORKER_WARMUP, _WORKER_CONTINUATION,
+        warmup_actions=_WORKER_WARMUP_ACTIONS,
+    )
+
+
+def beam_search(env, start, model, args, base, warmup_actions=None):
     """Grow the scripted plan segment-by-segment with beam pruning. Needed when the
     dangerous window is LONGER than an enumerable plan: from x120 the camping death
     is at ~step 107, and any short script that hands off early gets erased by the
@@ -169,44 +237,73 @@ def beam_search(env, start, model, args, base):
             return (r["cleared"], r["pu"], r["steps"], r["max_x"])
         return (r["cleared"], r["steps"], r["max_x"])
 
+    pool = None
+    if args.workers > 1:
+        ctx = mp.get_context("spawn")
+        pool = ctx.Pool(
+            args.workers,
+            initializer=_init_rollout_worker,
+            initargs=(args.model, start, args.seed, args.warmup,
+                      args.continuation, warmup_actions),
+        )
+        print(f"parallel candidate scoring: {args.workers} workers")
+
     beams = [[]]                                   # surviving prefixes (round 0: empty)
     best, t0 = None, time.perf_counter()
-    for rnd in range(args.rounds):
-        scored = []
-        for prefix in beams:
-            for m, d in vocab:
-                plan = prefix + [(m, d)]
-                r = rollout(env, start, model, plan, args.warmup, args.continuation)
+    try:
+        for rnd in range(args.rounds):
+            scored = []
+            plans = [prefix + [(m, d)] for prefix in beams for m, d in vocab]
+            if pool is None:
+                results = [
+                    rollout(env, start, model, plan, args.warmup, args.continuation,
+                            warmup_actions=warmup_actions)
+                    for plan in plans
+                ]
+            else:
+                results = pool.map(_worker_rollout, plans, chunksize=1)
+            for plan, r in zip(plans, results):
                 script_len = sum(dd for _, dd in plan)
                 if not r["survived_segments"]:
                     continue                        # died in-script: prune this branch
                 cont = r["steps"] - script_len - args.warmup
                 scored.append((key(r, cont), rng.random(), plan, r, cont))
-        if not scored:
-            print(f"  round {rnd+1}: every extension died in-script — beam exhausted")
-            break
-        scored.sort(key=lambda s: (s[0], s[1]), reverse=True)
-        top = scored[0]
-        if best is None or top[0] > best[0]:
-            best = top
-        beams = [s[2] for s in scored[:args.beam]]
-        el = time.perf_counter() - t0
-        tr = top[3]
-        pu_str = f" pu={tr['pu']} {tr['loadout']}" if pu_mode else ""
-        print(f"  round {rnd+1}/{args.rounds}: {len(scored)} survivors, best total "
-              f"{tr['steps']} steps (+{tr['steps']-base['steps']}) max_x={tr['max_x']} "
-              f"cont={top[4]}{pu_str}  [{fmt_plan(top[2])}]  ({el:.0f}s)")
-        # accept early once the handoff itself is healthy: script survived AND the
-        # greedy continuation lives long past the danger window (pu-mode: also
-        # require an actual loadout gain — that's the point of the search)
-        gained = (tr["pu"] > base["pu"]) if pu_mode else (tr["steps"] - base["steps"] >= args.min_gain)
-        if top[4] >= args.accept_cont and gained:
-            print(f"  continuation {top[4]} >= {args.accept_cont}: accepting")
-            best = top
-            break
-        if sum(d for _, d in beams[0]) + args.warmup >= args.script_cap:
-            print(f"  script length reached --script-cap {args.script_cap}")
-            break
+            if not scored:
+                print(f"  round {rnd+1}: every extension died in-script — beam exhausted")
+                break
+            scored.sort(key=lambda s: (s[0], s[1]), reverse=True)
+            top = scored[0]
+            if best is None or top[0] > best[0]:
+                best = top
+            beams = [s[2] for s in scored[:args.beam]]
+            el = time.perf_counter() - t0
+            tr = top[3]
+            pu_str = f" pu={tr['pu']} {tr['loadout']}" if pu_mode else ""
+            print(f"  round {rnd+1}/{args.rounds}: {len(scored)} survivors, best total "
+                  f"{tr['steps']} steps (+{tr['steps']-base['steps']}) max_x={tr['max_x']} "
+                  f"cont={top[4]}{pu_str}  [{fmt_plan(top[2])}]  ({el:.0f}s)")
+            # accept early once the handoff itself is healthy: script survived AND the
+            # greedy continuation lives long past the danger window (pu-mode: also
+            # require an actual loadout gain — that's the point of the search)
+            gained = ((tr["pu"] > base["pu"]) if pu_mode
+                      else (tr["steps"] - base["steps"] >= args.min_gain))
+            if top[4] >= args.accept_cont and gained:
+                print(f"  continuation {top[4]} >= {args.accept_cont}: accepting")
+                best = top
+                break
+            if sum(d for _, d in beams[0]) + args.warmup >= args.script_cap:
+                print(f"  script length reached --script-cap {args.script_cap}")
+                break
+    except BaseException:
+        if pool is not None:
+            pool.terminate()
+            pool.join()
+            pool = None
+        raise
+    finally:
+        if pool is not None:
+            pool.close()
+            pool.join()
     if best is None:
         return None
     br = best[3]
@@ -218,8 +315,11 @@ def beam_search(env, start, model, args, base):
         return None
     # verify: 2 independent fresh reloads must reproduce, then record the demo
     plan = best[2]
-    v1 = rollout(env, start, model, plan, args.warmup, args.continuation)
-    v2 = rollout(env, start, model, plan, args.warmup, args.continuation, record=True)
+    v1 = rollout(env, start, model, plan, args.warmup, args.continuation,
+                 warmup_actions=warmup_actions)
+    v2 = rollout(env, start, model, plan, args.warmup, args.continuation, record=True,
+                 record_continuation=args.record_continuation,
+                 warmup_actions=warmup_actions)
     ok = {(v["steps"], v["max_x"], v["pu"]) for v in (v1, v2)} == {(br["steps"], br["max_x"], br["pu"])}
     verdict = ("REPRODUCED 2/2" if ok
                else f"MISMATCH ({v1['steps']}/{v2['steps']} vs {br['steps']})")
@@ -245,8 +345,9 @@ def main():
     p.add_argument("--durations", type=int, nargs="+", default=DEFAULT_DURS,
                    help=f"segment lengths in agent-steps (default {DEFAULT_DURS})")
     p.add_argument("--warmup", type=int, default=0,
-                   help="greedy steps before the segments, RE-COMPUTED every rollout "
-                        "(shifts the search window without capturing a new state)")
+                   help="greedy steps before the segments; actions are computed once "
+                        "and replayed from reset (shifts the search window without "
+                        "capturing a frame-phase-shifted state)")
     p.add_argument("--continuation", type=int, default=600, help="greedy handoff step cap")
     p.add_argument("--min-gain", type=int, default=30, dest="min_gain",
                    help="accept only if verified steps beat the greedy baseline by this many")
@@ -256,6 +357,8 @@ def main():
     p.add_argument("--beam", type=int, default=0,
                    help="beam width; >0 switches to segment-by-segment beam search "
                         "(for maneuvers longer than an enumerable plan)")
+    p.add_argument("--workers", type=int, default=1,
+                   help="parallel emulator workers for beam candidate scoring")
     p.add_argument("--greedy-move", action="store_true", dest="greedy_move",
                    help="add a GREEDY pseudo-move to the vocab: a segment that follows "
                         "the policy (recorded; deterministic). Beam only.")
@@ -274,8 +377,13 @@ def main():
                    help="stop growing the script past this many agent-steps")
     p.add_argument("--accept-cont", type=int, default=150, dest="accept_cont",
                    help="accept once the greedy continuation alone survives this long")
+    p.add_argument("--record-continuation", action="store_true", dest="record_continuation",
+                   help="include the greedy continuation in the saved demo (canonical "
+                        "golden-run BC; normally only warmup+script are recorded)")
     p.add_argument("--seed", type=int, default=0)
     args = p.parse_args()
+    if args.workers < 1:
+        p.error("--workers must be at least 1")
 
     env = make_env(preprocess=True, curriculum=False, seed=args.seed)
     model = PPO.load(args.model, device="cpu")
@@ -284,25 +392,51 @@ def main():
     # real runs (measured: reload scripts die on the continuous trajectory).
     start = None if args.state == "RESET" else load_state(args.state)
 
+    # Compute a deterministic policy run-up once, then replay the exact actions
+    # for every candidate. This keeps every rollout in the canonical reset world
+    # (unlike save-state reloads) while making deep-frontier searches practical.
+    warmup_actions = None
+    if args.warmup:
+        warm = rollout(env, start, model, [], args.warmup, 0, record=True)
+        if warm["steps"] != args.warmup:
+            raise SystemExit(
+                f"!! policy ended after {warm['steps']} steps during --warmup {args.warmup}"
+            )
+        warmup_actions = np.asarray(warm["acts"])
+        replay = rollout(env, start, model, [], args.warmup, 0,
+                         warmup_actions=warmup_actions)
+        replay_keys = ("steps", "max_x", "pu", "cleared")
+        if any(replay[k] != warm[k] for k in replay_keys):
+            raise SystemExit("!! cached warmup replay diverged from the policy run-up")
+        print(f"cached {len(warmup_actions)} deterministic warmup actions")
+
     # --- determinism probe: a fixed plan must replay identically from fresh loads ---
     probe = [(4, 8), (2, 8), (6, 8)]
-    r1 = rollout(env, start, model, probe, args.warmup, args.continuation)
-    r2 = rollout(env, start, model, probe, args.warmup, args.continuation)
+    r1 = rollout(env, start, model, probe, args.warmup, args.continuation,
+                 warmup_actions=warmup_actions)
+    r2 = rollout(env, start, model, probe, args.warmup, args.continuation,
+                 warmup_actions=warmup_actions)
     if (r1["steps"], r1["max_x"]) != (r2["steps"], r2["max_x"]):
         raise SystemExit(f"!! non-deterministic replay ({r1['steps']}/{r1['max_x']} vs "
                          f"{r2['steps']}/{r2['max_x']}) -- aborting, results would be meaningless")
     print(f"determinism OK (probe plan: {r1['steps']} steps / max_x {r1['max_x']}, reproducible)")
 
     # --- greedy baseline from the same start (the bar to beat) ---
-    base = rollout(env, start, model, [], args.warmup, args.continuation)
+    base = rollout(env, start, model, [], args.warmup, args.continuation,
+                   warmup_actions=warmup_actions)
     print(f"greedy baseline: {base['steps']} steps / max_x {base['max_x']} / "
           f"cleared={base['cleared']} / pu={base['pu']} {base['loadout']}\n")
+    if base["truncated"] and not base["cleared"]:
+        raise SystemExit(
+            f"!! greedy baseline hit MAX_EPISODE_STEPS={C.MAX_EPISODE_STEPS}; "
+            "raise the ceiling before searching or no candidate can establish its true gain"
+        )
 
     # --- beam mode: grow the script past the danger window, then verify+save ---
     if args.beam > 0:
         print(f"beam search: width={args.beam} vocab={len(args.moves)}x{len(args.durations)} "
               f"rounds<={args.rounds} script-cap={args.script_cap} accept-cont={args.accept_cont}")
-        accepted = beam_search(env, start, model, args, base)
+        accepted = beam_search(env, start, model, args, base, warmup_actions)
         if accepted is None:
             print(f"\nNo verified beam plan beat baseline by {args.min_gain}+ steps.")
             print("Signal: the corridor may need finer moves (--durations 2 4 8), a different "
@@ -326,7 +460,8 @@ def main():
     results, t0 = [], time.perf_counter()
     best_key = (False, base["steps"], base["max_x"])
     for i, plan in enumerate(space):
-        r = rollout(env, start, model, list(plan), args.warmup, args.continuation)
+        r = rollout(env, start, model, list(plan), args.warmup, args.continuation,
+                    warmup_actions=warmup_actions)
         results.append(r)
         key = (r["cleared"], r["steps"], r["max_x"])
         if key > best_key:
@@ -350,8 +485,11 @@ def main():
     for r in results[:args.top]:
         if r["steps"] - base["steps"] < args.min_gain or not r["survived_segments"]:
             continue
-        v1 = rollout(env, start, model, list(r["plan"]), args.warmup, args.continuation)
-        v2 = rollout(env, start, model, list(r["plan"]), args.warmup, args.continuation, record=True)
+        v1 = rollout(env, start, model, list(r["plan"]), args.warmup, args.continuation,
+                     warmup_actions=warmup_actions)
+        v2 = rollout(env, start, model, list(r["plan"]), args.warmup, args.continuation,
+                     record=True, record_continuation=args.record_continuation,
+                     warmup_actions=warmup_actions)
         ok = ({(v["steps"], v["max_x"]) for v in (v1, v2)} == {(r["steps"], r["max_x"])})
         verdict = ("REPRODUCED 2/2" if ok
                    else f"MISMATCH ({v1['steps']}/{v2['steps']} vs {r['steps']})")
@@ -376,14 +514,20 @@ def _save_outputs(accepted, base, args):
     demo = f"demos/{args.name}.npz"
     np.savez_compressed(demo, obs=np.asarray(accepted["obs"], dtype=np.uint8),
                         actions=np.asarray(accepted["acts"]))
-    st = f"states/{args.name}.state"
-    save_state(st, accepted["handoff"])
+    st = None
+    if accepted["handoff"] is not None:
+        st = f"states/{args.name}.state"
+        save_state(st, accepted["handoff"])
     print(f"\nACCEPTED: {fmt_plan(accepted['plan'])}")
     print(f"  loadout: pu={accepted['pu']} {accepted['loadout']}")
     print(f"  {accepted['steps']} steps (+{accepted['steps']-base['steps']} vs baseline) "
           f"max_x={accepted['max_x']} cleared={accepted['cleared']}")
-    print(f"  demo ({len(accepted['acts'])} steps: warmup+segments) -> {demo}")
-    print(f"  handoff state (segment end) -> {st}")
+    demo_scope = "full golden trajectory" if args.record_continuation else "warmup+segments"
+    print(f"  demo ({len(accepted['acts'])} steps: {demo_scope}) -> {demo}")
+    if st is not None:
+        print(f"  handoff state (segment end) -> {st}")
+    else:
+        print("  handoff state: none (the scripted segment cleared the level)")
     print(f"next: python -m tools.self_imitation --model {args.model} --demos {demo} "
           f"--out checkpoints/l3-bc/lifeforce_ppo_bc.zip")
 

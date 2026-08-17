@@ -37,27 +37,22 @@ shaping in `src/config.py`.
 | `0x0070` (112) | **player control state** | 3=active, 4/5=dying, 1/2=flying-in — a precise death signal (verified via the death/respawn cycle) |
 | `0x0084` (132) | **invulnerability frames** | 128 on spawn, counts down (verified) |
 
-## Stage-transition suspects (unconfirmed — need a Stage-2 observation)
+## Stage transition (confirmed by the trained agent's Level-1 clear)
 
-| Address | Stage-1 value | Hypothesis |
-|--------:|--------------:|------------|
-| `0x0023` (35) | `0` | "Demo Stage Num?" (Data Crystal) — possibly 0-indexed current stage |
-| `0x0040` (64) | `0` | "Is Stage Vertical?" — **Stage 2 of Life Force is vertical, so this should flip 0→1 on clearing Stage 1** |
+| Address | Stage 1 | Stage 2 transition | Meaning |
+|--------:|--------:|-------------------:|---------|
+| `0x0023` (35) | `0` | `0` | "Demo Stage Num?"; not the clear signal |
+| `0x0040` (64) | `0` | **`1`** | "Is Stage Vertical?"; confirmed Level-1 clear signal |
 
-Both read `0` on Stage 1. Detecting "Level 1 cleared" means watching one (or
-both) change. We can't reach Stage 2 by scripted play, so:
+The deterministic clear reaches Stage 2 at agent step 3642. `0x0040` flips
+`0→1`, the environment emits `stage_cleared`, and the episode terminates with
+the clear bonus. Captures live under `ram_dumps/stage_transition_pid*.npz`.
 
-## Plan to confirm (bootstrap)
+## How it was confirmed
 
-1. Build the integration with the **confirmed** signals only (score reward,
-   lives-based done, optional X-position progress shaping).
-2. Train. The first episode that reaches Stage 2 triggers a RAM capture of the
-   transition.
-3. Diff that capture against the Stage-1 baseline (`ram_dumps/stage1_baseline.npz`)
-   to confirm which of `0x23` / `0x40` flips — then wire up the
-   "Level 1 cleared" done/reward condition.
-
-The agent's own progress produces the Stage-2 reference we can't get by hand.
+The wrapper was initially wired to treat a change in either candidate as a clear
+and capture transition RAM. The trained agent then cleared Level 1; repeated
+captures consistently reported `stage_num 0→0, vertical 0→1`.
 
 ## Reproduce
 

@@ -13,8 +13,8 @@ STATE = "1Player.Level1"
 ADDR_LIVES = 0x34          # P1 lives (also exposed in info by bundled data.json)
 ADDR_X_POS = 0x350         # P1 X position (15..232)
 ADDR_Y_POS = 0x32F         # P1 Y position (24..197)
-ADDR_STAGE_NUM = 0x23      # "Demo Stage Num?" — stage-transition suspect
-ADDR_STAGE_VERTICAL = 0x40  # "Is Stage Vertical?" — flips 0->1 on the vertical Stage 2
+ADDR_STAGE_NUM = 0x23      # "Demo Stage Num?" — remains 0 across the Level 1 clear
+ADDR_STAGE_VERTICAL = 0x40  # confirmed clear signal: flips 0->1 on vertical Stage 2
 
 # Power-up / weapon state (Data Crystal, verified via tools/ram_hunt). The agent
 # can read these to learn the Gradius-style meter: collect capsules (0x78 cursor
@@ -79,7 +79,11 @@ REWARD_ALIVE = 0.2          # survival is now the dominant, dense signal (the "p
 REWARD_DEATH = 10.0         # bigger explicit death penalty (forfeiture is the main cost)
 REWARD_CLEAR = 100.0        # bonus for clearing the stage (the goal)
 END_ON_LIFE_LOSS = True     # the real "survival is #1" lever: death ends the episode
-MAX_EPISODE_STEPS = 2000    # agent-step time limit (post frame-skip)
+# Level 1 extends beyond 3,200 agent steps.  The old 2,000-step ceiling silently
+# truncated the golden policy and made search unable to beat its baseline.
+# Stage-clear and life-loss termination still end normal episodes before this
+# safety ceiling.
+MAX_EPISODE_STEPS = 5000    # agent-step time limit (post frame-skip)
 
 # Power-up shaping (one-time bonuses on STATE INCREASES, so upgrade caps are
 # self-enforcing — a maxed upgrade can't increase, so it earns nothing and the

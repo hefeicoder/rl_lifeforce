@@ -1,13 +1,15 @@
-# Session resume state (auto-maintained by Claude — check here after a crash/closed window)
+# Project handoff and experiment log
 
-_Last updated: 2026-07-03 ~21:15 (Session 7, branch `go-explore`)_
+_Last updated: 2026-08-16 (branch `cycle8-boss-approach`)_
 _Full history: `docs/go-explore-l3-progress.md` (Sessions 1–7)._
 
 ## Key facts (stable)
 
 - **Progress metric = steps survived.** `x_pos` (RAM 0x350) is ship SCREEN position
   (15..232), NOT level progress — the game auto-scrolls. No "232 barrier" exists.
-- **Full-level bar: 891 steps** (2M baseline `lv1-front-speed/2000000`), still unmet.
+- **Original full-level bar: 891 steps** (2M baseline
+  `lv1-front-speed/2000000`). Current flagship **clears Level 1 in 3642
+  single-life steps**.
 - **Eval gotcha:** `tools.segment_search.rollout` overwrites
   `env.unwrapped.initial_state` — save it first and restore before level-start
   evals, else "full level" silently starts from the loaded state.
@@ -468,72 +470,66 @@ reloads land in a frame-phase-shifted world; scripts found there exploit
 enemy timings the real run never sees. ALL reload-based search gains past
 ~step 1800 were unconvertible for this reason.**
 Fix shipped in segment_search: `--state RESET` = canonical env.reset()
-world + `--warmup N` (greedy steps from level start, recomputed per rollout)
-= search happens ON the true trajectory; gains convert 1:1 via golden-build.
+world + `--warmup N` (greedy actions from level start, replayed from a fresh
+reset per rollout) = search happens ON the true trajectory; gains convert 1:1
+via golden-build.
 GOTCHA: --script-cap counts warmup — set it to warmup+desired script length.
 
-## RUNNING: continuous-world beam (`l3_cont2000`, log l3_cont2000c.log)
-`--state RESET --warmup 1918 --beam 8 --rounds 30 --durations 2 4 8
---script-cap 2220 --continuation 200` on l3-golden/bc10. Baseline confirmed
-2000 steps + full loadout. ~3 min/round.
-On acceptance: golden-build (policy to 1918 + script + greedy, ONE
-continuous recording) → BC 10ep → probe → boss check → iterate.
+## CYCLE 21: THE 2000-STEP CEILING + GOLDEN2 — COMPLETE
+The continuous-world beam exhausted at round 21 with every viable line tied at
+exactly 2000. Root cause: `MAX_EPISODE_STEPS=2000` truncated the baseline, so a
+search requiring baseline +30 was mathematically unable to accept. The ceiling
+is now 5000, and `segment_search` aborts if its baseline hits that ceiling.
 
-## (older) PAUSED FOR DIRECTION — options for the ~1850 plateau:
-(a) Deeper script: beam from bd80 with --script-cap 600+ and more rounds —
-    maybe the zone needs a long carried line like the 1736 web (v3-style).
-(b) Ensemble: 2-3 demo variants (bd120/seed-1) pooled BC — worked for
-    coverage before; cheap now.
-(c) Investigate first: trace WHERE the 1830 runs die vs what the demos dodge
-    (are we solving the wrong hazard? is trajectory divergence eating the
-    dodge?), and check probe oscillation (44↔160 on e1762 across ckpts).
-(d) Longer consolidations (1M steps/round) — the band may just need more
-    rebuild time per skill.
-2. **`l3_b1736_hold` beam: DONE — negative result.** Accepted only +53
-   (38-step script, REPRODUCED 2/2, `demos/l3_b1736_hold.npz`) and the final
-   line contains NO HOLD segments; beam exhausted at round 30 (vs v3's +440
-   at 60). Mechanism: 6th move inflated branching 20%/segment at the same
-   beam width → shallower coverage. **Lesson: expanding the vocab needs a
-   wider beam (e.g. --beam 16) to be a fair test.** The stay-put hypothesis
-   now rides on the reward-side test (calm1).
+With the ceiling lifted, `l3-golden/bc10` actually survives **2152** steps before
+a real life loss. At ~2100 it pins itself at x=232 and vibrates UP+R/DOWN+R until
+terrain reaches it. A canonical-reset probe found the whole correction:
+**UP+LEFT x8 at step 2090 → 3214 steps (+1062), reproduced 2/2**.
 
-## CYCLE 6 STATUS: BLOCKED ON ROBUSTIFICATION (superseded by the rescue above)
+Golden recording support now optionally includes the greedy continuation. The
+banked full continuous trajectory is `demos/l3_golden_3214.npz` (3214 examples).
+BC 10 epochs converged 0.084→0.001 and produced the new flagship:
+**`checkpoints/l3-golden2/lifeforce_ppo_bc10.zip` — 3214 single-life steps /
+score 1932 / Missile+Option / churn 19.3% / HOLD 68.6%.** It reproduces the
+golden run exactly from a cold canonical reset. Retention improved: h1462
+399→412 and x120 277→900-cap; p1866 stayed 37 (a reload-world probe).
 
-**Flagship: `checkpoints/l3-consolidate6/lifeforce_ppo_final.zip` (1736/1314).**
+Visual check corrected the RAM-only inference: step 3214 is already inside the
+rotating-brain boss fight. The scroll clock continues incrementing in this arena,
+so "clock stopped = boss" is not a valid detector.
 
-What's banked and reusable: verified 267-step gauntlet script
-(`demos/l3_b1736_fine3.npz`, +231, ≈ step 1964 from level start) and the BC5
-seed that threads it greedily for 389 steps
-(`checkpoints/l3-bc5/lifeforce_ppo_bc20.zip`).
+## CYCLE 22: LEVEL 1 CLEARED
+Canonical boss search + low-rate golden cloning walked the policy around the
+rotating arms. The important conversions were 3214→3295→3410→3456→3487→3530,
+using full-trajectory demos and **5 BC epochs at lr=1e-4**. The standard 3e-4
+dose regressed; the gentler dose reproduced each winning line exactly.
 
-Why it's stuck: the corridor has near-zero tolerance. ANY stochastic PPO
-training dies in it constantly → learns avoidance (drill: 491→90;
-consolidate7: ~90). BC implants it but wrecks other skills (b811 16, x120 21).
-Low entropy prevents rebuilding (mode collapse). Erosion vs implant is
-currently a strict trade-off.
+Final probe from the 3530 policy: `UP+LEFT x8` at step 3508 kills the boss and
+transitions at **step 3642**, verified 2/2 as a scripted canonical run. The full
+clear demo is `demos/l3_boss3530_single.npz` (3642 examples).
 
-Ideas for next session (in rough order of promise):
-1. **Widen the corridor tolerance**: beam-search demo VARIANTS from perturbed
-   starts (bd120/bd80/bd40, different warmups) → BC the ensemble (DAgger-ish
-   coverage) so nearby states also have good actions.
-2. **KL-anchored consolidation**: consolidate from BC5 with a KL penalty to
-   the BC5 policy (or interleave 1-2 BC refresh epochs every ~50k PPO steps —
-   true self-imitation) so the corridor can't drift far.
-3. **Reward shaping**: small dense bonus for scroll-clock progress past the
-   step-1736 mark (or death penalty scaled by depth) so corridor attempts
-   aren't pure negative signal.
-4. Entropy schedule: start 0.03 (rebuild), anneal to 0.005 (protect corridor).
+**LEVEL-1-CLEAR FLAGSHIP:**
+`checkpoints/l3-level1-clear/lifeforce_ppo_bc5_lr1e4.zip`
+- canonical deterministic clear: **3642 steps / score 2932 / no life loss**
+- verified **3/3** cold resets, identical result
+- Missile+Option fielded; churn 19.0%; HOLD 62.9%
+- clear signal confirmed: `stage_vertical` **0→1** while `stage_num` stays 0
+- proof video: `videos/l3_level1_clear.mp4`
+
+Tooling added during the clear: 5000-step safety ceiling; search abort on a
+truncated baseline; full-continuation golden recording; deterministic cached
+warmup replay; fast prefix replay that rebuilds the final four-frame stack; and
+parallel beam candidate scoring (`--workers`).
+
+**Next:** preserve this checkpoint as the Level-1 release artifact. Before any
+robustness PPO, evaluate stochastic clear rate separately; do not overwrite the
+deterministic clear with a later checkpoint. Level 2 is now a state/config task.
 
 ## Next steps
 
-1. (user decision) pick a rescue idea above, or accept 1736 and move on.
-2. Update PR #1 / progress doc with the cycle-6 saga; commit.
-
-## Next steps (in order)
-
-1. When the beam banks: drill (mix 1.0, curriculum = {b1736_bd120, new handoff,
-   x120, b232_bd120, b1111_bd120, b1261_bd120, b1398_bd120}; BC only if script
-   ≥30 steps) → consolidate (mix 0.3) → sweep vs bar **≥1736**.
-2. Repeat at the next death. Cycle ≈ 30–40 min.
-3. Commit the session's work (progress doc, segment_search.py, RESUME.md, demos/
-   states) — propose to user first.
+1. Commit and merge the Level-1 code and documentation changes.
+2. Tag that commit (suggested: `level1-clear-v1`) and publish the checkpoint as
+   a GitHub Release asset with its SHA-256; optionally attach the proof video.
+3. Add the final release URL to `README.md` once the asset exists.
+4. Start Level 2 from its real reset/state and confirm its clear RAM signal
+   before changing rewards or training.

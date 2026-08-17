@@ -138,7 +138,7 @@ class LifeForceWrapper(gym.Wrapper):
     Reads the addresses found during the RAM hunt (see docs/ram_map.md) and
     encodes the project's objective: stay alive, score, pass the level. Also
     auto-captures the Stage-1 -> Stage-2 transition RAM the first time it is
-    seen, which is how we finish confirming the stage-clear detector.
+    seen. The clear run confirmed ADDR_STAGE_VERTICAL flips 0 -> 1.
     """
 
     def __init__(self, env, reward_score_scale=None, reward_alive=None,
@@ -335,9 +335,11 @@ class LifeForceWrapper(gym.Wrapper):
         return info
 
     def _capture_transition(self, ram):
-        """Save the first observed stage-transition RAM — our elusive Stage-2
-        reference. Diff against ram_dumps/stage1_baseline.npz to confirm which
-        of ADDR_STAGE_NUM / ADDR_STAGE_VERTICAL is the true stage counter."""
+        """Save the first observed stage-transition RAM for regression analysis.
+
+        The Level-1 clear confirmed ADDR_STAGE_VERTICAL flips 0 -> 1 while
+        ADDR_STAGE_NUM remains 0.
+        """
         os.makedirs(C.RAM_DUMP_DIR, exist_ok=True)
         path = os.path.join(C.RAM_DUMP_DIR, f"stage_transition_pid{os.getpid()}.npz")
         if not os.path.exists(path):
