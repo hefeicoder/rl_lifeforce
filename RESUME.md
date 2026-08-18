@@ -560,14 +560,47 @@ Canonical search (`warmup=173`) accepted `DOWN+LEFT x16` in beam round 1:
 - checkpoint SHA-256:
   `0eece1eac3b036bab6be93ebeb80580fe8ef0d842326f006641eed3925c19d88`
 
-**Decision:** keep PPO deferred. Continue canonical search + full-golden BC from
+**Bootstrap decision:** keep PPO deferred. Continue canonical search + full-golden BC from
 the step-362 frontier. Preserve the Level-1 release and this Level-2 checkpoint.
+
+## LEVEL 2 CANONICAL ADVANCE: 362 -> 1778
+
+On 2026-08-17, six consecutive canonical search + full-golden BC conversions
+advanced the Level-2 specialist without PPO:
+
+| Input | Warmup | Verified correction | Search result | BC cold reset |
+|---:|---:|---|---:|---:|
+| 362 | 282 | `LEFT x16 > LEFT x16` | 505 (+143), cont 191 | 505, 3/3 |
+| 505 | 425 | `LEFT x4` | 637 (+132), cont 208 | 637, 3/3 |
+| 637 | 557 | `DOWN+LEFT x8 > UP+LEFT x16 > LEFT x4` | 1059 (+422), cont 474 | 1059, 3/3 |
+| 1059 | 979 | `UP x16` | 1368 (+309), cont 373 | 1368, 3/3 |
+| 1368 | 1288 | `DOWN+RIGHT x2` | 1560 (+192), cont 270 | 1560, 3/3 |
+| 1560 | 1480 | `UP+RIGHT x8 > DOWN+LEFT x8` | 1778 (+218), cont 282 | 1778, 3/3 |
+
+All search winners reproduced 2/2 before recording. Every BC conversion used the
+full reset-to-continuation trajectory, 5 epochs, and lr `1e-4`; losses converged
+respectively to 0.0174, 0.0048, 0.0054, 0.0030, 0.0010, and 0.0007.
+
+**CURRENT LEVEL-2 FLAGSHIP:**
+`checkpoints/l2-golden-1778/lifeforce_ppo_bc5_lr1e4.zip`
+
+- cold Level-2 reset: **1778 steps / score 3148 (+216)**, identical 3/3
+- churn 11.1%, HOLD 81.4%
+- proof video: `videos/l2_golden1778.mp4`
+- final golden demo: `demos/l2_s1560_canonical7.npz` (1778 examples)
+- checkpoint SHA-256:
+  `6b7df9accb064467ac9862270558ba467d1409e047f1fef5ad91942e3eeed36a`
+
+The session improved 362 -> 1778 (4.9x) and the inherited Level-1 baseline
+233 -> 1778 (7.6x). PPO remains deferred because every observed failure was
+localized, search found a short correction, and the cloned policy retained long
+autonomous continuations exactly.
 
 ## Next steps
 
 Follow the dedicated [`docs/level2_training_playbook.md`](docs/level2_training_playbook.md).
 
-1. Inspect the step-362 death and run canonical search from roughly 60-120 steps
+1. Inspect the step-1778 death and run canonical search from roughly 60-120 steps
    before it using `--initial-state states/l2_start.state --state RESET`.
 2. Confirm whether the scroll clock remains a useful Level-2 progress diagnostic.
 3. Confirm Level 2's clear signal when reached; never infer it from screen position.

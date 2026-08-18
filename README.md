@@ -7,8 +7,8 @@ Reinforcement learning on **Life Force** (the NES release of Konami's
 ![Life Force (NES), Stage 1 — the Vic Viper ship in the cellular cavern](images/lifeforce.png)
 
 **Result:** the agent clears **Level 1** deterministically in 3642 agent steps.
-A separate Level-2 specialist now reaches 362 steps from the settled vertical-stage
-reset, up from the inherited policy's 233-step baseline.
+A separate Level-2 specialist now reaches 1778 steps from the settled
+vertical-stage reset, up from the inherited policy's 233-step baseline.
 
 Why this project exists: most RL game tutorials use turnkey packages (like
 `gym-super-mario-bros`) that bundle the ROM, the action set, and the reward
@@ -43,9 +43,9 @@ own ROM, and extending the game integration (finding RAM addresses) yourself.
   cold level reset. [Proof video](https://github.com/hefeicoder/rl_lifeforce/releases/download/level1-clear-v1/l3_level1_clear.mp4).
 - 🚧 **Level 2 specialist bootstrapped** — captured a settled, player-active
   Level-2 reset from the real Level-1 transition, measured the inherited policy
-  at 233 steps, and produced a first specialist that reaches **362 steps**
-  identically in 3/3 resets. The checkpoint is a local working milestone, not a
-  released clear artifact; see the
+  at 233 steps, and advanced the specialist through canonical golden runs to
+  **1778 steps**, identical in 3/3 resets. The checkpoint is a local working
+  milestone, not a released clear artifact; see the
   [Level-2 playbook](docs/level2_training_playbook.md#current-level-2-bootstrap-status-2026-08-16).
 
 ### Verified Level-1 artifact

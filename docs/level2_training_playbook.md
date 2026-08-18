@@ -76,9 +76,37 @@ The first specialist milestone is complete:
   resets. Demo: `demos/l2_s233_canonical1.npz`; proof video:
   `videos/l2_golden362.mp4`.
 
-**Decision:** continue the canonical search + full-golden BC loop from the
+**Bootstrap decision:** continue the canonical search + full-golden BC loop from the
 step-362 death. General opening play is already competent and the first failure
 was corrected by a single localized maneuver, so broad PPO is deferred.
+
+### Canonical continuation milestone (2026-08-17)
+
+Six more verified search/BC conversions advanced the specialist without PPO:
+
+| Input frontier | Warmup | Accepted correction | New frontier |
+|---:|---:|---|---:|
+| 362 | 282 | `LEFT x16 > LEFT x16` | 505 |
+| 505 | 425 | `LEFT x4` | 637 |
+| 637 | 557 | `DOWN+LEFT x8 > UP+LEFT x16 > LEFT x4` | 1059 |
+| 1059 | 979 | `UP x16` | 1368 |
+| 1368 | 1288 | `DOWN+RIGHT x2` | 1560 |
+| 1560 | 1480 | `UP+RIGHT x8 > DOWN+LEFT x8` | 1778 |
+
+Every search result reproduced 2/2, and every cloned checkpoint reproduced its
+new frontier identically in 3/3 cold Level-2 resets. The current flagship is:
+
+```text
+checkpoints/l2-golden-1778/lifeforce_ppo_bc5_lr1e4.zip
+SHA-256 6b7df9accb064467ac9862270558ba467d1409e047f1fef5ad91942e3eeed36a
+```
+
+It reaches **1778 steps / score 3148 (+216)** with 11.1% churn and 81.4%
+HOLD. Proof video: `videos/l2_golden1778.mp4`.
+
+**Current decision:** continue canonical search from the step-1778 failure.
+The repeated long greedy continuations and exact BC transfer still indicate
+localized navigation failures, not a broad-competence problem requiring PPO.
 
 ## What changes in a vertical stage
 
