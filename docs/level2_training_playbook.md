@@ -53,7 +53,7 @@ conditional recovery tools, not automatic stages.
   confirmation.
 - Whether the released policy's Missile + Option auto-buy rule remains the best
   Level-2 loadout.
-- Whether 5000 agent steps is a sufficient safety ceiling for Level 2.
+- Whether the raised 7000-agent-step safety ceiling is sufficient for Level 2.
 - The Level-2 clear policy's eventual vertical positioning and loadout needs.
 
 ## Current Level-2 bootstrap status (2026-08-16)
@@ -94,7 +94,8 @@ Six more verified search/BC conversions advanced the specialist without PPO:
 | 1560 | 1480 | `UP+RIGHT x8 > DOWN+LEFT x8` | 1778 |
 
 Every search result reproduced 2/2, and every cloned checkpoint reproduced its
-new frontier identically in 3/3 cold Level-2 resets. The current flagship is:
+new frontier identically in 3/3 cold Level-2 resets. The flagship at this
+milestone was:
 
 ```text
 checkpoints/l2-golden-1778/lifeforce_ppo_bc5_lr1e4.zip
@@ -104,9 +105,47 @@ SHA-256 6b7df9accb064467ac9862270558ba467d1409e047f1fef5ad91942e3eeed36a
 It reaches **1778 steps / score 3148 (+216)** with 11.1% churn and 81.4%
 HOLD. Proof video: `videos/l2_golden1778.mp4`.
 
-**Current decision:** continue canonical search from the step-1778 failure.
-The repeated long greedy continuations and exact BC transfer still indicate
-localized navigation failures, not a broad-competence problem requiring PPO.
+### Late-stage and boss milestone (2026-08-17)
+
+Eight additional accepted conversions reached the Level-2 boss and its second
+phase:
+
+| Input | Warmup | Accepted correction | New frontier | BC recipe |
+|---:|---:|---|---:|---|
+| 1778 | 1698 | `UP+LEFT x4` | 1930 | 5 × `1e-4` |
+| 1930 | 1850 | `DOWN+RIGHT x8 > DOWN x16` | 2632 | 5 × `1e-4` |
+| 2632 | 2552 | `LEFT x16` | 2989 | 5 × `1e-4` |
+| 2989 | 2909 | `DOWN+RIGHT x2` | 3081 | 10 × `1e-4` |
+| 3081 | 3001 | `HOLD x16 > UP+LEFT x8` | 3256 | 10 × `1e-4` |
+| 3256 | 3176 | `UP x16` | 3972 | 10 × `1e-4` |
+| 3972 | 3892 | `UP+LEFT x16` | 4160 | 10 × `1e-4` |
+| 4160 | 4080 | `UP+LEFT x16` | 4342 | 20 × `5e-5` |
+
+Video confirms that roughly step 2870 enters the blue mechanical boss chamber,
+and the 3900s introduce a large white second-phase boss with red spread shots.
+No RAM stage transition has occurred yet.
+
+The first five-epoch 3081 clone reached only 2996; ten epochs transferred it
+exactly. At the 4342 frontier, `10 × 1e-4` regressed to 3972 even with low BC
+loss. Restarting from the preserved 4160 checkpoint with `20 × 5e-5` transferred
+4342 exactly. Offline BC loss is therefore not an acceptance signal; cold-reset
+behavior remains decisive.
+
+Current flagship:
+
+```text
+checkpoints/l2-boss4342-bc20-lr5e5/lifeforce_ppo_bc20_lr5e5.zip
+SHA-256 04afc118d00cacd9c2ef80dda609a66e84ba9b8fadfc6c6ebd7261cb8a34c153
+```
+
+It reaches **4342 steps / score 3493 (+561)** identically in 3/3 resets,
+with 5.7% churn and 89.0% HOLD. Proof video:
+`videos/l2_boss4342_bc20_lr5e5.mp4`.
+
+**Current decision:** continue canonical boss search from the step-4342 death.
+PPO remains deferred, but boss-phase BC should begin at `10 × 1e-4` and lower
+the learning rate if cold-reset retention regresses. The safety ceiling is now
+7000 because Level 2 remains uncleared beyond 4300 steps.
 
 ## What changes in a vertical stage
 

@@ -80,11 +80,11 @@ REWARD_ALIVE = 0.2          # survival is now the dominant, dense signal (the "p
 REWARD_DEATH = 10.0         # bigger explicit death penalty (forfeiture is the main cost)
 REWARD_CLEAR = 100.0        # bonus for clearing the stage (the goal)
 END_ON_LIFE_LOSS = True     # the real "survival is #1" lever: death ends the episode
-# Level 1 extends beyond 3,200 agent steps.  The old 2,000-step ceiling silently
-# truncated the golden policy and made search unable to beat its baseline.
-# Stage-clear and life-loss termination still end normal episodes before this
-# safety ceiling.
-MAX_EPISODE_STEPS = 5000    # agent-step time limit (post frame-skip)
+# Level 1 extends beyond 3,200 agent steps, and the Level-2 boss is still active
+# beyond 4,300. Old ceilings silently truncated golden policies and made search
+# unable to establish a true gain. Stage-clear and life-loss termination still
+# end normal episodes before this safety ceiling.
+MAX_EPISODE_STEPS = 7000    # agent-step time limit (post frame-skip)
 
 # Power-up shaping (one-time bonuses on STATE INCREASES, so upgrade caps are
 # self-enforcing — a maxed upgrade can't increase, so it earns nothing and the

@@ -550,7 +550,7 @@ Canonical search (`warmup=173`) accepted `DOWN+LEFT x16` in beam round 1:
 **362 steps (+129), continuation 173, reproduced 2/2**. Full golden demo:
 `demos/l2_s233_canonical1.npz` (362 examples).
 
-**LEVEL-2 FLAGSHIP:**
+**FIRST LEVEL-2 SPECIALIST:**
 `checkpoints/l2-golden-362/lifeforce_ppo_bc5_lr1e4.zip`
 
 - full-golden BC: 5 epochs, lr `1e-4`, loss 0.5755→0.0188
@@ -581,7 +581,7 @@ All search winners reproduced 2/2 before recording. Every BC conversion used the
 full reset-to-continuation trajectory, 5 epochs, and lr `1e-4`; losses converged
 respectively to 0.0174, 0.0048, 0.0054, 0.0030, 0.0010, and 0.0007.
 
-**CURRENT LEVEL-2 FLAGSHIP:**
+**LEVEL-2 1778 MILESTONE:**
 `checkpoints/l2-golden-1778/lifeforce_ppo_bc5_lr1e4.zip`
 
 - cold Level-2 reset: **1778 steps / score 3148 (+216)**, identical 3/3
@@ -596,11 +596,50 @@ The session improved 362 -> 1778 (4.9x) and the inherited Level-1 baseline
 localized, search found a short correction, and the cloned policy retained long
 autonomous continuations exactly.
 
+## LEVEL 2 LATE STAGE + BOSS: 1778 -> 4342
+
+Continued canonical search on 2026-08-17:
+
+| Input | Warmup | Verified correction | Search result | Accepted BC |
+|---:|---:|---|---:|---|
+| 1778 | 1698 | `UP+LEFT x4` | 1930 (+152), cont 228 | 5 × `1e-4`, 3/3 |
+| 1930 | 1850 | `DOWN+RIGHT x8 > DOWN x16` | 2632 (+702), cont 758 | 5 × `1e-4`, 3/3 |
+| 2632 | 2552 | `LEFT x16` | 2989 (+357), cont 421 | 5 × `1e-4`, 3/3 |
+| 2989 | 2909 | `DOWN+RIGHT x2` | 3081 (+92), cont 170 | 10 × `1e-4`, 3/3 |
+| 3081 | 3001 | `HOLD x16 > UP+LEFT x8` | 3256 (+175), cont 231 | 10 × `1e-4`, 3/3 |
+| 3256 | 3176 | `UP x16` | 3972 (+716), cont 780 | 10 × `1e-4`, 3/3 |
+| 3972 | 3892 | `UP+LEFT x16` | 4160 (+188), cont 252 | 10 × `1e-4`, 3/3 |
+| 4160 | 4080 | `UP+LEFT x16` | 4342 (+182), cont 246 | 20 × `5e-5`, 3/3 |
+
+Video corrected the old 3xxx-length guess: the blue boss chamber begins around
+step 2870, then a large white boss enters in the 3900s with red spread shots.
+The 4342 run is still in this fight and ends by life loss, not clear or timeout.
+
+Boss BC required stricter retention handling. Five epochs cloned the 3081 demo
+only to 2996; ten epochs transferred it exactly. For 4342, `10 × 1e-4` regressed
+to the earlier 3972 route despite low offline loss. Restarting from the preserved
+4160 model with `20 × 5e-5` transferred 4342 exactly. Continue to treat BC loss
+as diagnostic only and cold-reset behavior as the acceptance gate.
+
+**CURRENT LEVEL-2 FLAGSHIP:**
+`checkpoints/l2-boss4342-bc20-lr5e5/lifeforce_ppo_bc20_lr5e5.zip`
+
+- cold Level-2 reset: **4342 steps / score 3493 (+561)**, identical 3/3
+- churn 5.7%, HOLD 89.0%
+- proof video: `videos/l2_boss4342_bc20_lr5e5.mp4`
+- golden demo: `demos/l2_boss4160_canonical15.npz` (4342 examples)
+- checkpoint SHA-256:
+  `04afc118d00cacd9c2ef80dda609a66e84ba9b8fadfc6c6ebd7261cb8a34c153`
+
+The 5000-step ceiling is no longer a safe search margin with an active frontier
+at 4342, so `MAX_EPISODE_STEPS` is now 7000. Search must still reject any
+truncated baseline and confirm a real stage transition before claiming a clear.
+
 ## Next steps
 
 Follow the dedicated [`docs/level2_training_playbook.md`](docs/level2_training_playbook.md).
 
-1. Inspect the step-1778 death and run canonical search from roughly 60-120 steps
+1. Inspect the step-4342 boss death and run canonical search from roughly 60-120 steps
    before it using `--initial-state states/l2_start.state --state RESET`.
 2. Confirm whether the scroll clock remains a useful Level-2 progress diagnostic.
 3. Confirm Level 2's clear signal when reached; never infer it from screen position.

@@ -7,7 +7,7 @@ Reinforcement learning on **Life Force** (the NES release of Konami's
 ![Life Force (NES), Stage 1 — the Vic Viper ship in the cellular cavern](images/lifeforce.png)
 
 **Result:** the agent clears **Level 1** deterministically in 3642 agent steps.
-A separate Level-2 specialist now reaches 1778 steps from the settled
+A separate Level-2 specialist now reaches 4342 steps from the settled
 vertical-stage reset, up from the inherited policy's 233-step baseline.
 
 Why this project exists: most RL game tutorials use turnkey packages (like
@@ -44,7 +44,7 @@ own ROM, and extending the game integration (finding RAM addresses) yourself.
 - 🚧 **Level 2 specialist bootstrapped** — captured a settled, player-active
   Level-2 reset from the real Level-1 transition, measured the inherited policy
   at 233 steps, and advanced the specialist through canonical golden runs to
-  **1778 steps**, identical in 3/3 resets. The checkpoint is a local working
+  the second boss phase at **4342 steps**, identical in 3/3 resets. The checkpoint is a local working
   milestone, not a released clear artifact; see the
   [Level-2 playbook](docs/level2_training_playbook.md#current-level-2-bootstrap-status-2026-08-16).
 
@@ -296,7 +296,7 @@ The current loop is:
 
 1. **Evaluate from the real level reset.** Life Force auto-scrolls, so survival
    steps are the terrain-progress metric until the boss. The environment ceiling
-   is 5000; `segment_search` aborts if a baseline is truncated so a time limit
+   is 7000; `segment_search` aborts if a baseline is truncated so a time limit
    cannot masquerade as a death again.
 2. **Search in the canonical world.** Use `--state RESET --warmup N`, never an
    intermediate emulator save, for a maneuver that must transfer to the full run.
